@@ -87,9 +87,11 @@ try {
 
     foreach ($run in @('A','B')) {
         $open = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\open-run.ps1`" -TaskDir `"%~dp0.`" -Run $run %*`r`n"
+        $runAndUpload = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\run-and-upload.ps1`" -TaskDir `"%~dp0.`" -Run $run %*`r`n"
         $collect = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\collect-run.ps1`" -TaskDir `"%~dp0.`" -Run $run %*`r`n"
         $reset = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\reset-run.ps1`" -TaskDir `"%~dp0.`" -Run $run %*`r`n"
         [System.IO.File]::WriteAllText((Join-Path $taskDir "open-$run.cmd"), $open, [System.Text.Encoding]::ASCII)
+        [System.IO.File]::WriteAllText((Join-Path $taskDir "run-$run.cmd"), $runAndUpload, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllText((Join-Path $taskDir "collect-$run.cmd"), $collect, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllText((Join-Path $taskDir "reset-$run.cmd"), $reset, [System.Text.Encoding]::ASCII)
     }

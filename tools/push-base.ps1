@@ -47,6 +47,6 @@ try {
 }
 finally {
     if (Test-Path -LiteralPath $temp) {
-        Remove-Item -LiteralPath $temp -Recurse -Force
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
