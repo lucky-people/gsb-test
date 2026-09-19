@@ -39,16 +39,21 @@ if (-not $rollout) {
 }
 
 $sessionId = $null
-foreach ($line in Get-Content -LiteralPath $rollout.FullName) {
-    try {
-        $obj = $line | ConvertFrom-Json
-    } catch {
-        continue
+$reader = New-Object System.IO.StreamReader($rollout.FullName)
+try {
+    for ($i = 0; $i -lt 20; $i++) {
+        $line = $reader.ReadLine()
+        if ($null -eq $line) {
+            break
+        }
+        if ($line -match '"type"\s*:\s*"session_meta"' -and $line -match '"session_id"\s*:\s*"([^"]+)"') {
+            $sessionId = $Matches[1]
+            break
+        }
     }
-    if ($obj.type -eq 'session_meta' -and $obj.payload.session_id) {
-        $sessionId = $obj.payload.session_id
-        break
-    }
+}
+finally {
+    $reader.Dispose()
 }
 if (-not $sessionId) {
     throw "Could not find session_id in $($rollout.FullName)"
