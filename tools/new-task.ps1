@@ -94,6 +94,9 @@ try {
         [System.IO.File]::WriteAllText((Join-Path $taskDir "reset-$run.cmd"), $reset, [System.Text.Encoding]::ASCII)
     }
 
+    $pushBase = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\push-base.ps1`" -TaskDir `"%~dp0.`" %*`r`n"
+    [System.IO.File]::WriteAllText((Join-Path $taskDir 'push-base.cmd'), $pushBase, [System.Text.Encoding]::ASCII)
+
     Write-Host "Task created: $taskDir"
     Write-Host "Initial snapshot SHA: $initialSha"
     Write-Host "Bundle: $bundle"
