@@ -8,7 +8,19 @@ $ErrorActionPreference = 'Stop'
 $taskDirResolved = (Resolve-Path -LiteralPath $TaskDir).Path
 $taskId = Split-Path $taskDirResolved -Leaf
 $runDir = Join-Path $taskDirResolved $Run
-$codexHome = Join-Path $taskDirResolved ".codex-home\$Run"
+$codexHomeRoot = Join-Path $taskDirResolved ".codex-home\$Run"
+$currentHomeFile = Join-Path $codexHomeRoot 'current.txt'
+if (Test-Path -LiteralPath $currentHomeFile) {
+    $codexHome = (Get-Content -Raw -LiteralPath $currentHomeFile).Trim()
+} else {
+    $codexHome = $codexHomeRoot
+}
+if (-not (Test-Path -LiteralPath $codexHome)) {
+    $latestHome = Get-ChildItem -LiteralPath $codexHomeRoot -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($latestHome) {
+        $codexHome = $latestHome.FullName
+    }
+}
 $metaPath = Join-Path $taskDirResolved 'meta.json'
 
 if (-not (Test-Path -LiteralPath $metaPath)) {

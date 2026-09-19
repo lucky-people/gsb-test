@@ -7,13 +7,19 @@ param(
 $ErrorActionPreference = 'Stop'
 $taskDirResolved = (Resolve-Path -LiteralPath $TaskDir).Path
 $runDir = Join-Path $taskDirResolved $Run
-$codexHome = Join-Path $taskDirResolved ".codex-home\$Run"
+$codexHomeRoot = Join-Path $taskDirResolved ".codex-home\$Run"
 
 if (Test-Path -LiteralPath $runDir) {
-    Remove-Item -LiteralPath $runDir -Recurse -Force
+    try {
+        Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Warning "Could not remove $runDir. Close any running Codex windows and try again. $($_.Exception.Message)"
+    }
 }
-if (Test-Path -LiteralPath $codexHome) {
-    Remove-Item -LiteralPath $codexHome -Recurse -Force
+if (Test-Path -LiteralPath $codexHomeRoot) {
+    Get-ChildItem -LiteralPath $codexHomeRoot -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host "Reset $Run done."

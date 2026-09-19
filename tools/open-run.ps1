@@ -21,15 +21,20 @@ if (-not (Test-Path -LiteralPath $bundle)) {
 
 $taskId = Split-Path $taskDirResolved -Leaf
 $runDir = Join-Path $taskDirResolved $Run
-$codexHome = Join-Path $taskDirResolved ".codex-home\$Run"
+$codexHomeRoot = Join-Path $taskDirResolved ".codex-home\$Run"
+$runToken = Get-Date -Format 'yyyyMMdd-HHmmss'
+$codexHome = Join-Path $codexHomeRoot $runToken
 
 if (Test-Path -LiteralPath $runDir) {
-    Remove-Item -LiteralPath $runDir -Recurse -Force
+    try {
+        Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction Stop
+    } catch {
+        throw "Could not reset $runDir. Close any running Codex windows and try again. $($_.Exception.Message)"
+    }
 }
-if (Test-Path -LiteralPath $codexHome) {
-    Remove-Item -LiteralPath $codexHome -Recurse -Force
-}
+New-Item -ItemType Directory -Path $codexHomeRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $codexHomeRoot 'current.txt'), $codexHome, (New-Object System.Text.UTF8Encoding($false)))
 
 git clone --branch base --single-branch $bundle $runDir | Out-Null
 git -C $runDir switch -c "task/$taskId/$Run" | Out-Null
@@ -49,6 +54,8 @@ foreach ($name in @('auth.json','relay_model_catalog.json','relay_base_instructi
 $codexHomeForToml = $codexHome.Replace('\','/')
 $configTemplate = Get-Content -Raw -LiteralPath (Join-Path $configDir 'config.template.toml')
 $configText = $configTemplate.Replace('__CODEX_HOME__', $codexHomeForToml)
+$trustKey = $runDir.ToLowerInvariant()
+$configText += "`r`n[projects.'$trustKey']`r`ntrust_level = `"trusted`"`r`n"
 [System.IO.File]::WriteAllText((Join-Path $codexHome 'config.toml'), $configText, (New-Object System.Text.UTF8Encoding($false)))
 
 $envFile = Join-Path $configDir '.env.local'
@@ -90,4 +97,4 @@ if ($PrepareOnly) {
     exit 0
 }
 
-& $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox
+& $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust
