@@ -10,3 +10,9 @@ coverage/
 *.db-wal
 .DS_Store
 Thumbs.db
+
+# GSB runtime state
+tools/config/.env.local
+tasks/*/A/
+tasks/*/B/
+tasks/*/.codex-home/

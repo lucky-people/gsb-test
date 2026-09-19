@@ -1,0 +1,9 @@
+﻿{
+    "task_id":  "rhythm-reaction",
+    "prompt_file":  "prompt.md",
+    "language_framework":  "TypeScript, Node.js, Web Audio API, Canvas",
+    "base_branch":  "task/rhythm-reaction/base",
+    "initial_sha":  "a958463f94ec23f7a20971c562acdc1d6b432588",
+    "initial_permalink":  "",
+    "created_at":  "2026-09-19T13:10:44.9953258+08:00"
+}

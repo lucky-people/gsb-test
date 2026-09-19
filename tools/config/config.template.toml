@@ -1,0 +1,18 @@
+model = "auto_model/urm"
+model_provider = "super_relay"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+model_context_window = 1000000
+model_auto_compact_token_limit = 950000
+model_instructions_file = "__CODEX_HOME__/relay_base_instructions.txt"
+model_catalog_json = "__CODEX_HOME__/relay_model_catalog.json"
+
+[model_providers.super_relay]
+name = "OpenAI"
+base_url = "https://gsb.zhihejob.cn/v1"
+wire_api = "responses"
+env_key = "SUPER_RELAY_KEY"
+
+[sandbox_workspace_write]
+network_access = true
