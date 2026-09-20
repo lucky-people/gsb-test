@@ -17,5 +17,7 @@ tasks/*/A/
 tasks/*/B/
 tasks/*/.codex-home/
 tasks/*/results/*/*.mp4
+tasks/*/row.csv
+tasks/*/row.tsv
 .recon-*/
 .tmp-*
