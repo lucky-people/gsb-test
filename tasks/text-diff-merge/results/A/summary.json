@@ -1,0 +1,19 @@
+﻿{
+    "task_id":  "text-diff-merge",
+    "run":  "A",
+    "language_framework":  "Python",
+    "initial_sha":  "5aa4cd7dbc3987be8444325a9abeef60a6163861",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/5aa4cd7dbc3987be8444325a9abeef60a6163861",
+    "session_id":  "01a0bd7e-7c76-7bb3-b8e3-55db2e8fcde5",
+    "trajectory_file":  "results/A/01a0bd7e-7c76-7bb3-b8e3-55db2e8fcde5.jsonl",
+    "trajectory_url":  "https://raw.githubusercontent.com/lucky-people/gsb-test/main/tasks/text-diff-merge/results/A/01a0bd7e-7c76-7bb3-b8e3-55db2e8fcde5.jsonl",
+    "artifact_sha":  "39c13e4732f528e6f2af26e8691d20be102ad334",
+    "artifact_permalink":  "https://github.com/lucky-people/gsb-test/commit/39c13e4732f528e6f2af26e8691d20be102ad334",
+    "artifact_branch":  "task/text-diff-merge/A",
+    "video_file":  "A.mp4",
+    "video_path":  "D:\\北京中强实习\\record1\\gsb-test\\tasks\\text-diff-merge\\results\\A\\A.mp4",
+    "video_duration_s":  358.7,
+    "run_valid":  true,
+    "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
+    "collected_at":  "2026-09-20T14:32:20.2576714+08:00"
+}
