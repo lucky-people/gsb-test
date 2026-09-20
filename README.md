@@ -107,35 +107,37 @@ collect-B.cmd
 - 把当前产物做成一个 parent 为初始快照的 commit；
 - 校验这一轮是否合法（只有一条 prompt、以 `task_complete` 结束、没有 `turn_aborted`），把结果写入 `summary.json` 的 `run_valid` / `validity_note`，不合法时会直接告警。
 
-## 自动录屏
+## 录屏（自己录）
 
-`run-A.cmd` / `run-B.cmd` 会在拉起 CLI 之前自动开始录屏，CLI 退出后停止，
-视频落到 `tasks\<task-id>\results\<A|B>\<A|B>.mp4`（已加入 `.gitignore`，不进 Git），
-路径会写进 `summary.json` 的 `video_path` 并出现在 `submission.md` 的「运行录屏」一行。
+工具**不再自动录屏**。要交的是一段约 90 秒的**产物效果演示**，不是整段等待过程，
+所以录屏由你自己用熟悉的工具录，建议流程：
 
-- 参数在 `tools/config/record.json`：`ffmpegPath` / `framerate` / `crf` / `preset`。
-  默认 10fps + crf 26，整屏录制（gdigrab），3840x1080 大约 200 KB/s，跑 10 分钟约 120 MB；
-  想更小就调低 `framerate` 或调高 `crf`。
-- `ffmpegPath` 是本机路径，换机器或走 PATH 都能用：脚本会依次尝试配置路径、同目录的 ffprobe、
-  裸命令 `ffmpeg`。
-- 没装 ffmpeg、或把 `enabled` 改成 `false` 时，自动跳过录屏，任务照常跑。
-- 只开窗口不采集结果：`open-A.cmd`（要顺便录屏就 `open-A.cmd -Record`）。
-- 这一轮不想录：`run-A.cmd -NoRecord`。
+1. 先把终端窗口调大、字号调大，摆到你计划录的那块屏上；
+2. 开始录屏，再运行演示脚本（见下节），全程约 80～90 秒；
+3. 录完把文件按 `<A|B>.mp4` 之类的名字命名，填进飞书表的「运行录屏」单元格。
 
-## 并行跑 A / B
+## 跑完后演示产物
 
-两次跑互不依赖（各有独立工作区和独立 `CODEX_HOME`），可以同时进行：
+每轮跑完，任务目录里有现成的演示启动器：
 
-1. 开两个终端窗口，分别运行任务目录里的
-   `parallel-A-left.cmd`（A，录左屏）和 `parallel-B-right.cmd`（B，录右屏）。
-2. 把 A 的窗口拖到左屏并最大化，把 B 的窗口拖到右屏并最大化——
-   录屏是按屏幕区域切的，窗口在哪儿，视频里就是哪儿。
-3. 两个窗口各粘贴一次提示词（每个窗口只发一条消息），干完各自退出 CLI。
-4. 两边会自动采集并推送；万一两边同时提交 `main` 上的 results 撞了车导致一次 push 失败，
-   最后补一条 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\push-all.ps1 -ProxyUrl http://127.0.0.1:7897` 即可。
+```text
+demo-A.cmd        # 在 A 的工作区里跑单元测试 + 效果演示
+demo-B.cmd        # 同理，跑 B 的
+```
 
-区域坐标写在 `tools/config/record.json` 的 `regions`（默认左屏 `0,0 1920x1080`、右屏 `1920,0 1920x1080`），
-换机器或改分辨率后按实际布局调整。
+它做的事：切到 `tasks\<task-id>\<A|B>` 工作区，用 `python -X utf8` 跑
+`tools\demos\<task-id>\demo.py` —— 先跑 unittest，再依次演示 `diff`、`unified`、
+`apply` 往返、三方合并（单侧 / 冲突）、以及 10 万行的 bench 数字。
+
+等效的手工命令：
+
+```powershell
+cd tasks\<task-id>\A
+python -X utf8 ..\..\..\tools\demos\<task-id>\demo.py
+```
+
+要换演示内容，直接改 `tools\demos\<task-id>\demo.py`（只调用交付物的公开接口，
+A / B 两个工作区都能跑）。
 
 单独检查某一轮是否合法：
 

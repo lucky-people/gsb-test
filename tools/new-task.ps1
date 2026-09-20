@@ -111,13 +111,11 @@ try {
     $pushBase = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\push-base.ps1`" -TaskDir `"%~dp0.`" %*`r`n"
     [System.IO.File]::WriteAllText((Join-Path $taskDir 'push-base.cmd'), $pushBase, [System.Text.Encoding]::ASCII)
 
-    # Parallel launchers: run A on the left screen and B on the right screen at
-    # the same time; each window records its own screen region.
-    foreach ($pair in @(@('A', 'left'), @('B', 'right'))) {
-        $run = $pair[0]
-        $region = $pair[1]
-        $parallel = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\run-and-upload.ps1`" -TaskDir `"%~dp0.`" -Run $run -RecordRegion $region %*`r`n"
-        [System.IO.File]::WriteAllText((Join-Path $taskDir "parallel-$run-$region.cmd"), $parallel, [System.Text.Encoding]::ASCII)
+    # Demo launchers: replay the delivered artifact in its workspace so the run
+    # can be recorded by hand.
+    foreach ($run in @('A', 'B')) {
+        $demo = "@echo off`r`npowershell.exe -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\..\tools\run-demo.ps1`" -TaskDir `"%~dp0.`" -Run $run %*`r`n"
+        [System.IO.File]::WriteAllText((Join-Path $taskDir "demo-$run.cmd"), $demo, [System.Text.Encoding]::ASCII)
     }
 
     Write-Host "Task created: $taskDir"
