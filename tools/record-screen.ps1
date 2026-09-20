@@ -62,7 +62,7 @@ function Resolve-FfmpegPath {
         }
     }
     [void]$candidates.Add($ExeName)
-    [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\' + $ExeName))
+    [void]$candidates.Add((Join-Path $env:LOCALAPPDATA ('Microsoft\WinGet\Links\' + $ExeName)))
 
     foreach ($candidate in $candidates) {
         if (-not $candidate) { continue }
@@ -111,10 +111,15 @@ function Start-ScreenRecording {
         '-c:v', 'libx264',
         '-preset', [string]$cfg.preset,
         '-crf', [string]$cfg.crf,
-        '-pix_fmt', 'yuv420p'
+        '-pix_fmt', 'yuv420p',
+        # A keyframe every 2 seconds at 10 fps: fragments get flushed often
+        # enough that an unexpected kill still leaves a playable video.
+        '-g', '20'
     )
     if ($cfg.extraArgs) { $argList += @($cfg.extraArgs) }
-    $argList += @('-movflags', '+faststart', '-y', $OutPath)
+    # Fragmented MP4: the file stays playable even if ffmpeg is killed instead
+    # of stopped gracefully (e.g. the CLI window is closed by hand).
+    $argList += @('-movflags', '+frag_keyframe+empty_moov+default_base_moof', '-y', $OutPath)
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $ffmpeg
