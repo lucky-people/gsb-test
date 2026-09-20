@@ -18,8 +18,14 @@ if (-not $RemoteUrl) {
     throw "No remote URL. Pass -RemoteUrl or configure origin in $repoRoot."
 }
 
-git -C $runDir remote remove origin 2>$null
-git -C $runDir remote add origin $RemoteUrl
+# The run workspace is cloned from the baseline bundle and its origin remote is
+# removed on purpose, so set it up instead of assuming it already exists.
+$existingRemotes = @(git -C $runDir remote 2>$null)
+if ($existingRemotes -contains 'origin') {
+    git -C $runDir remote set-url origin $RemoteUrl
+} else {
+    git -C $runDir remote add origin $RemoteUrl
+}
 
 $branch = "task/$taskId/$Run"
 git -C $runDir push origin "HEAD:refs/heads/$branch"
