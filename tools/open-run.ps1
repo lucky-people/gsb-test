@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
     [switch]$PrepareOnly,
     [switch]$Record,
-    [string]$RecordPath
+    [string]$RecordPath,
+    [ValidateSet('full','left','right')][string]$RecordRegion = 'full'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,7 +110,13 @@ if ($Record) {
     if ($recordDir -and -not (Test-Path -LiteralPath $recordDir)) {
         New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
     }
-    $recording = Start-ScreenRecording -OutPath $RecordPath
+    $region = Get-RecordRegion -Name $RecordRegion
+    if ($region) {
+        Write-Host ("Recording region: {0} ({1},{2} {3}x{4})" -f $RecordRegion, $region.X, $region.Y, $region.Width, $region.Height)
+        $recording = Start-ScreenRecording -OutPath $RecordPath -OffsetX $region.X -OffsetY $region.Y -Width $region.Width -Height $region.Height
+    } else {
+        $recording = Start-ScreenRecording -OutPath $RecordPath
+    }
 }
 
 try {

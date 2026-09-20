@@ -122,6 +122,21 @@ collect-B.cmd
 - 只开窗口不采集结果：`open-A.cmd`（要顺便录屏就 `open-A.cmd -Record`）。
 - 这一轮不想录：`run-A.cmd -NoRecord`。
 
+## 并行跑 A / B
+
+两次跑互不依赖（各有独立工作区和独立 `CODEX_HOME`），可以同时进行：
+
+1. 开两个终端窗口，分别运行任务目录里的
+   `parallel-A-left.cmd`（A，录左屏）和 `parallel-B-right.cmd`（B，录右屏）。
+2. 把 A 的窗口拖到左屏并最大化，把 B 的窗口拖到右屏并最大化——
+   录屏是按屏幕区域切的，窗口在哪儿，视频里就是哪儿。
+3. 两个窗口各粘贴一次提示词（每个窗口只发一条消息），干完各自退出 CLI。
+4. 两边会自动采集并推送；万一两边同时提交 `main` 上的 results 撞了车导致一次 push 失败，
+   最后补一条 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\push-all.ps1 -ProxyUrl http://127.0.0.1:7897` 即可。
+
+区域坐标写在 `tools/config/record.json` 的 `regions`（默认左屏 `0,0 1920x1080`、右屏 `1920,0 1920x1080`），
+换机器或改分辨率后按实际布局调整。
+
 单独检查某一轮是否合法：
 
 ```powershell

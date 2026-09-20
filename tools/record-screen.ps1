@@ -19,14 +19,32 @@ function Get-RecordConfig {
         crf       = 26
         preset    = 'ultrafast'
         extraArgs = @()
+        regions   = $null
     }
     if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
         $file = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
-        foreach ($key in @('enabled', 'ffmpegPath', 'framerate', 'crf', 'preset', 'extraArgs')) {
+        foreach ($key in @('enabled', 'ffmpegPath', 'framerate', 'crf', 'preset', 'extraArgs', 'regions')) {
             if ($file.PSObject.Properties[$key] -and $null -ne $file.$key) { $cfg[$key] = $file.$key }
         }
     }
     return $cfg
+}
+
+function Get-RecordRegion {
+    param([string]$Name, [string]$ConfigPath)
+
+    if (-not $Name -or $Name -eq 'full') { return $null }
+    if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config\record.json' }
+    $cfg = Get-RecordConfig -ConfigPath $ConfigPath
+    if (-not $cfg.regions) { throw "No regions configured in $ConfigPath" }
+    $region = $cfg.regions.$Name
+    if (-not $region) { throw "Unknown region '$Name' in $ConfigPath" }
+    return [pscustomobject]@{
+        X      = [int]$region.x
+        Y      = [int]$region.y
+        Width  = [int]$region.width
+        Height = [int]$region.height
+    }
 }
 
 function Resolve-FfmpegPath {
@@ -60,6 +78,10 @@ function Start-ScreenRecording {
         [Parameter(Mandatory = $true)][string]$OutPath,
         [string]$ConfigPath,
         [int]$Framerate = 0,
+        [int]$OffsetX = 0,
+        [int]$OffsetY = 0,
+        [int]$Width = 0,
+        [int]$Height = 0,
         [switch]$Quiet
     )
 
@@ -80,10 +102,11 @@ function Start-ScreenRecording {
     $dir = Split-Path -Parent $OutPath
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
-    $argList = @(
-        '-hide_banner', '-loglevel', 'error',
-        '-f', 'gdigrab',
-        '-framerate', [string]$fps,
+    $argList = @('-hide_banner', '-loglevel', 'error', '-f', 'gdigrab', '-framerate', [string]$fps)
+    if ($Width -gt 0 -and $Height -gt 0) {
+        $argList += @('-offset_x', [string]$OffsetX, '-offset_y', [string]$OffsetY, '-video_size', ('{0}x{1}' -f $Width, $Height))
+    }
+    $argList += @(
         '-i', 'desktop',
         '-c:v', 'libx264',
         '-preset', [string]$cfg.preset,

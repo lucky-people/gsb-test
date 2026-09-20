@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
     [switch]$SkipPush,
-    [switch]$NoRecord
+    [switch]$NoRecord,
+    [ValidateSet('full','left','right')][string]$RecordRegion = 'full'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,7 @@ $openArgs = @{ TaskDir = $taskDirResolved; Run = $Run }
 if (-not $NoRecord) {
     $openArgs['Record'] = $true
     $openArgs['RecordPath'] = $recordPath
+    $openArgs['RecordRegion'] = $RecordRegion
 }
 & (Join-Path $PSScriptRoot 'open-run.ps1') @openArgs
 
