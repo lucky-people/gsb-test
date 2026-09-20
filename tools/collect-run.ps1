@@ -104,6 +104,15 @@ finally {
 
 $runValid = ($userTurnCount -eq 1 -and $completedCount -ge 1 -and $abortedCount -eq 0)
 $validityNote = "user turns=$userTurnCount, task_complete=$completedCount, turn_aborted=$abortedCount"
+
+# A turn can "complete" without the agent doing anything (empty model reply,
+# immediate auth/stream error). Treat an unchanged workspace as invalid.
+$baseTree = (git -C $runDir rev-parse "$initialSha^{tree}").Trim()
+$emptyRun = ($tree -eq $baseTree)
+if ($emptyRun) {
+    $validityNote += ", no file changes"
+    $runValid = $false
+}
 if (-not $runValid) {
     $validityNote = "INVALID run, redo in a fresh window: " + $validityNote
 }
