@@ -1,12 +1,16 @@
-﻿{
-    "task_id":  "rhythm-reaction",
-    "run":  "B",
-    "language_framework":  "TypeScript, Node.js, Web Audio API, Canvas",
-    "initial_sha":  "a958463f94ec23f7a20971c562acdc1d6b432588",
-    "initial_permalink":  "",
-    "session_id":  "01a0b871-005b-73a2-910a-e488103747dd",
-    "trajectory_file":  "results/B/01a0b871-005b-73a2-910a-e488103747dd.jsonl",
-    "artifact_sha":  "91a3ed87c8b669c40200d84913cfbe9282aa09e2",
-    "artifact_branch":  "task/rhythm-reaction/B",
-    "collected_at":  "2026-09-19T16:12:22.1706038+08:00"
+{
+  "task_id": "rhythm-reaction",
+  "run": "B",
+  "language_framework": "JavaScript, TypeScript, Node.js, Vite, Web Audio API, Canvas",
+  "initial_sha": "a958463f94ec23f7a20971c562acdc1d6b432588",
+  "initial_permalink": "https://github.com/lucky-people/gsb-test/commit/a958463f94ec23f7a20971c562acdc1d6b432588",
+  "session_id": "01a0b871-005b-73a2-910a-e488103747dd",
+  "trajectory_file": "results/B/01a0b871-005b-73a2-910a-e488103747dd.jsonl",
+  "trajectory_url": "https://raw.githubusercontent.com/lucky-people/gsb-test/main/tasks/rhythm-reaction/results/B/01a0b871-005b-73a2-910a-e488103747dd.jsonl",
+  "artifact_sha": "91a3ed87c8b669c40200d84913cfbe9282aa09e2",
+  "artifact_permalink": "https://github.com/lucky-people/gsb-test/commit/91a3ed87c8b669c40200d84913cfbe9282aa09e2",
+  "artifact_branch": "task/rhythm-reaction/B",
+  "run_valid": false,
+  "validity_note": "Turn 1 finished normally (task_complete), but a second user message ('帮我上推github') was typed into the same window and was then interrupted (turn_aborted). The session is no longer a single-prompt session, so run B must be redone in a fresh window.",
+  "collected_at": "2026-09-19T16:12:22.1706038+08:00"
 }

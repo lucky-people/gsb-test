@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "collab-whiteboard",
+    "run":  "B",
+    "language_framework":  "JavaScript / TypeScript, Node.js, WebSocket, Canvas, IndexedDB, SQLite, Vite",
+    "initial_sha":  "cffd9a548b7e5eeb155393bde50276231fb429b7",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/cffd9a548b7e5eeb155393bde50276231fb429b7",
+    "session_id":  "01a0b875-caf2-7a72-b5df-f1c88a85af69",
+    "trajectory_file":  "results/B/01a0b875-caf2-7a72-b5df-f1c88a85af69.jsonl",
+    "trajectory_url":  "https://raw.githubusercontent.com/lucky-people/gsb-test/main/tasks/collab-whiteboard/results/B/01a0b875-caf2-7a72-b5df-f1c88a85af69.jsonl",
+    "artifact_sha":  "05a4606e0aa38c7893e07e2992c668e7945114ff",
+    "artifact_permalink":  "https://github.com/lucky-people/gsb-test/commit/05a4606e0aa38c7893e07e2992c668e7945114ff",
+    "artifact_branch":  "task/collab-whiteboard/B",
+    "run_valid":  true,
+    "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
+    "collected_at":  "2026-09-20T09:30:30.0327583+08:00"
+}

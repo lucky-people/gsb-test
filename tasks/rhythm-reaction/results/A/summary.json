@@ -1,12 +1,17 @@
-﻿{
-    "task_id":  "rhythm-reaction",
-    "run":  "A",
-    "language_framework":  "TypeScript, Node.js, Web Audio API, Canvas",
-    "initial_sha":  "a958463f94ec23f7a20971c562acdc1d6b432588",
-    "initial_permalink":  "",
-    "session_id":  "01a0b84e-28ba-7870-b592-0e213e81419f",
-    "trajectory_file":  "results/A/01a0b84e-28ba-7870-b592-0e213e81419f.jsonl",
-    "artifact_sha":  "88cd1b364ee5d0a95cc9d06093111a47e5f82a61",
-    "artifact_branch":  "task/rhythm-reaction/A",
-    "collected_at":  "2026-09-19T15:29:02.7805459+08:00"
+{
+  "task_id": "rhythm-reaction",
+  "run": "A",
+  "language_framework": "JavaScript, TypeScript, Node.js, Vite, Web Audio API, Canvas",
+  "initial_sha": "a958463f94ec23f7a20971c562acdc1d6b432588",
+  "initial_permalink": "https://github.com/lucky-people/gsb-test/commit/a958463f94ec23f7a20971c562acdc1d6b432588",
+  "session_id": "01a0b84e-28ba-7870-b592-0e213e81419f",
+  "trajectory_file": "results/A/01a0b84e-28ba-7870-b592-0e213e81419f.jsonl",
+  "trajectory_url": "https://raw.githubusercontent.com/lucky-people/gsb-test/main/tasks/rhythm-reaction/results/A/01a0b84e-28ba-7870-b592-0e213e81419f.jsonl",
+  "artifact_sha": "8ebc42be480f94b51354ad3f24f0acdd130c9805",
+  "artifact_permalink": "https://github.com/lucky-people/gsb-test/commit/8ebc42be480f94b51354ad3f24f0acdd130c9805",
+  "artifact_branch": "task/rhythm-reaction/A",
+  "run_valid": true,
+  "validity_note": "single prompt, ended with task_complete",
+  "artifact_note": "The original artifact commit 88cd1b364ee5d0a95cc9d06093111a47e5f82a61 was destroyed when the A workspace folder was re-initialized for the GitHub upload. This commit was rebuilt from the unchanged A workspace files with the identical tree 0f417effccb474d303194cce7813607d6f9db481 and the same parent a958463f94ec23f7a20971c562acdc1d6b432588.",
+  "collected_at": "2026-09-19T15:29:02.7805459+08:00"
 }

@@ -104,7 +104,38 @@ collect-B.cmd
 - 提取 `session_meta.payload.session_id`；
 - 把轨迹复制到 `results/A/` 或 `results/B/`；
 - 生成 `summary.json`；
-- 把当前产物做成一个 parent 为初始快照的 commit。
+- 把当前产物做成一个 parent 为初始快照的 commit；
+- 校验这一轮是否合法（只有一条 prompt、以 `task_complete` 结束、没有 `turn_aborted`），把结果写入 `summary.json` 的 `run_valid` / `validity_note`，不合法时会直接告警。
+
+单独检查某一轮是否合法：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify-run.ps1 -Path tasks\my-task\results\A
+```
+
+## 生成提交字段
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\make-submission.ps1 -TaskDir tasks\my-task
+```
+
+会读取 `meta.json` 和 `results/A|B/summary.json`，按飞书表格要求输出
+「语言/框架、初始环境快照、A/B-SessionID、A/B-轨迹文件、A/B-产物快照」等字段，
+同时写入 `tasks\<task-id>\submission.md`。
+
+## 推送到 GitHub
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\push-all.ps1
+```
+
+它会把 `main`（工具 + 轨迹）和所有 `task/<id>/base`、`task/<id>/A`、`task/<id>/B`
+分支推到 `https://github.com/lucky-people/gsb-test`，推送后逐个比对远端 SHA，
+失败会按间隔重试。GitHub 直连不稳定时，先启动本地代理再执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\push-all.ps1 -ProxyUrl http://127.0.0.1:7897
+```
 
 ## 重置
 

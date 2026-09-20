@@ -1,0 +1,26 @@
+题目 ID：{{task_id}}
+User Prompt：{{prompt_file}}（原文，直接粘贴，不要摘要或改写）
+任务类型：{{task_type}}
+任务难度：{{difficulty}}
+语言/框架：{{language_framework}}
+Harness：codex cli
+Harness 版本：{{harness_version}}
+操作系统：{{os}}
+环境可复现等级：{{reproducible}}
+初始环境快照：{{initial_permalink}}
+
+----- 第一次跑（A）-----
+A-SessionID：{{a_session_id}}
+A-轨迹文件：{{a_trajectory_url}}
+A-产物快照：{{a_artifact_permalink}}
+A-运行录屏：（录屏链接，需自行录制并上传）
+
+----- 第二次跑（B）-----
+B-SessionID：{{b_session_id}}
+B-轨迹文件：{{b_trajectory_url}}
+B-产物快照：{{b_artifact_permalink}}
+B-运行录屏：（录屏链接，需自行录制并上传）
+
+----- 自检 -----
+轨迹校验：A = {{a_valid}}；B = {{b_valid}}
+备注：{{notes}}

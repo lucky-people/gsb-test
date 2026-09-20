@@ -16,3 +16,5 @@ tools/config/.env.local
 tasks/*/A/
 tasks/*/B/
 tasks/*/.codex-home/
+.recon-*/
+.tmp-*

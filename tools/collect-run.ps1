@@ -26,7 +26,7 @@ $metaPath = Join-Path $taskDirResolved 'meta.json'
 if (-not (Test-Path -LiteralPath $metaPath)) {
     throw "Missing meta.json: $metaPath"
 }
-$meta = Get-Content -Raw -LiteralPath $metaPath | ConvertFrom-Json
+$meta = Get-Content -Raw -Encoding UTF8 -LiteralPath $metaPath | ConvertFrom-Json
 
 $sessionsRoot = Join-Path $codexHome 'sessions'
 if (-not (Test-Path -LiteralPath $sessionsRoot)) {
@@ -80,16 +80,57 @@ $artifactSha = (git -C $runDir commit-tree $tree -p $initialSha -m "artifact $Ru
 git -C $runDir update-ref "refs/heads/task/$taskId/$Run" $artifactSha
 git -C $runDir reset --hard $artifactSha | Out-Null
 
+$userTurnCount = 0
+$completedCount = 0
+$abortedCount = 0
+$validityReader = New-Object System.IO.StreamReader($rollout.FullName)
+try {
+    while (($line = $validityReader.ReadLine()) -ne $null) {
+        if ($line -notmatch '"type"') { continue }
+        try { $rec = $line | ConvertFrom-Json } catch { continue }
+        if ($rec.type -eq 'response_item' -and $rec.payload.type -eq 'message' -and $rec.payload.role -eq 'user') {
+            $text = ($rec.payload.content | ForEach-Object { $_.text }) -join ' '
+            if ($text -and $text -notmatch '^\s*<(environment_context|user_instructions|turn_aborted)') {
+                $userTurnCount++
+            }
+        }
+        if ($rec.type -eq 'event_msg' -and $rec.payload.type -eq 'task_complete') { $completedCount++ }
+        if ($rec.type -eq 'event_msg' -and $rec.payload.type -eq 'turn_aborted') { $abortedCount++ }
+    }
+}
+finally {
+    $validityReader.Dispose()
+}
+
+$runValid = ($userTurnCount -eq 1 -and $completedCount -ge 1 -and $abortedCount -eq 0)
+$validityNote = "user turns=$userTurnCount, task_complete=$completedCount, turn_aborted=$abortedCount"
+if (-not $runValid) {
+    $validityNote = "INVALID run, redo in a fresh window: " + $validityNote
+}
+
+$repoUrl = $meta.repo_url
+$artifactPermalink = $(if ($repoUrl) { "$($repoUrl.TrimEnd('/'))/commit/$artifactSha" } else { '' })
+$initialPermalink = $(if ($meta.initial_permalink) { $meta.initial_permalink } elseif ($repoUrl) { "$($repoUrl.TrimEnd('/'))/commit/$initialSha" } else { '' })
+$trajectoryUrl = ''
+if ($repoUrl) {
+    $rawBase = $repoUrl.TrimEnd('/') -replace '^https://github\.com/', 'https://raw.githubusercontent.com/'
+    $trajectoryUrl = "$rawBase/main/tasks/$taskId/results/$Run/$sessionId.jsonl"
+}
+
 $summary = [ordered]@{
     task_id = $taskId
     run = $Run
     language_framework = $meta.language_framework
     initial_sha = $initialSha
-    initial_permalink = $meta.initial_permalink
+    initial_permalink = $initialPermalink
     session_id = $sessionId
     trajectory_file = "results/$Run/$sessionId.jsonl"
+    trajectory_url = $trajectoryUrl
     artifact_sha = $artifactSha
+    artifact_permalink = $artifactPermalink
     artifact_branch = "task/$taskId/$Run"
+    run_valid = $runValid
+    validity_note = $validityNote
     collected_at = (Get-Date).ToString('o')
 }
 $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $resultDir 'summary.json') -Encoding UTF8
@@ -99,3 +140,7 @@ Write-Host "SessionID: $sessionId"
 Write-Host "Trajectory: $trajectoryPath"
 Write-Host "Artifact SHA: $artifactSha"
 Write-Host "Artifact branch: task/$taskId/$Run"
+Write-Host "Run valid: $runValid ($validityNote)"
+if (-not $runValid) {
+    Write-Warning "This run cannot be submitted as-is. Close the window, run reset-$Run.cmd, then start a fresh window and paste the prompt only."
+}

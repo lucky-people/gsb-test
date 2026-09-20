@@ -1,9 +1,13 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$TaskId,
     [string]$PromptPath,
     [string]$SourceDir,
     [string]$LanguageFramework = "Unknown",
+    [string]$TaskType = "",
+    [string]$Difficulty = "困难",
+    [string]$HarnessVersion = "",
+    [string]$RepoUrl = "https://github.com/lucky-people/gsb-test",
     [string]$RepoRoot = ""
 )
 
@@ -74,13 +78,21 @@ try {
         Set-Content -LiteralPath (Join-Path $taskDir 'prompt.md') -Value 'TODO: paste prompt here.' -Encoding UTF8
     }
 
+    $permalink = $(if ($RepoUrl) { "$($RepoUrl.TrimEnd('/'))/commit/$initialSha" } else { '' })
     $meta = [ordered]@{
         task_id = $TaskId
         prompt_file = 'prompt.md'
+        task_type = $TaskType
+        difficulty = $Difficulty
         language_framework = $LanguageFramework
+        harness = 'codex cli'
+        harness_version = $HarnessVersion
+        os = 'Windows 11'
+        reproducible = '无外部依赖'
+        repo_url = $RepoUrl
         base_branch = "task/$TaskId/base"
         initial_sha = $initialSha
-        initial_permalink = ''
+        initial_permalink = $permalink
         created_at = (Get-Date).ToString('o')
     }
     $meta | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $taskDir 'meta.json') -Encoding UTF8
