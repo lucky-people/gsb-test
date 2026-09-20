@@ -5,7 +5,8 @@ param(
     [switch]$PrepareOnly,
     [switch]$Record,
     [string]$RecordPath,
-    [ValidateSet('full','left','right')][string]$RecordRegion = 'full'
+    [ValidateSet('full','left','right')][string]$RecordRegion = 'full',
+    [switch]$SkipPreflight
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,6 +99,16 @@ Write-Host "CODEX_HOME: $codexHome"
 if ($PrepareOnly) {
     Write-Host "PrepareOnly specified; Codex CLI was not launched."
     exit 0
+}
+
+if (-not $SkipPreflight) {
+    Write-Host 'Checking relay connectivity before the run...'
+    try {
+        & (Join-Path $PSScriptRoot 'check-relay.ps1')
+    } catch {
+        Write-Warning ("Relay preflight failed: " + $_.Exception.Message)
+        throw 'Relay preflight failed. Fix the key/network first, or re-run with -SkipPreflight to force.'
+    }
 }
 
 $recording = $null
