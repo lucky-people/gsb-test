@@ -13,13 +13,13 @@ Harness 版本：{{harness_version}}
 A-SessionID：{{a_session_id}}
 A-轨迹文件：{{a_trajectory_url}}
 A-产物快照：{{a_artifact_permalink}}
-A-运行录屏：（录屏链接，需自行录制并上传）
+A-运行录屏：{{a_video}}
 
 ----- 第二次跑（B）-----
 B-SessionID：{{b_session_id}}
 B-轨迹文件：{{b_trajectory_url}}
 B-产物快照：{{b_artifact_permalink}}
-B-运行录屏：（录屏链接，需自行录制并上传）
+B-运行录屏：{{b_video}}
 
 ----- 自检 -----
 轨迹校验：A = {{a_valid}}；B = {{b_valid}}

@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "ffmpegPath": "D:\\常用软件\\ffmpeg\\bin\\ffmpeg.exe",
+  "framerate": 10,
+  "crf": 26,
+  "preset": "ultrafast",
+  "extraArgs": []
+}

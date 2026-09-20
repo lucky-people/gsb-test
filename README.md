@@ -107,6 +107,21 @@ collect-B.cmd
 - 把当前产物做成一个 parent 为初始快照的 commit；
 - 校验这一轮是否合法（只有一条 prompt、以 `task_complete` 结束、没有 `turn_aborted`），把结果写入 `summary.json` 的 `run_valid` / `validity_note`，不合法时会直接告警。
 
+## 自动录屏
+
+`run-A.cmd` / `run-B.cmd` 会在拉起 CLI 之前自动开始录屏，CLI 退出后停止，
+视频落到 `tasks\<task-id>\results\<A|B>\<A|B>.mp4`（已加入 `.gitignore`，不进 Git），
+路径会写进 `summary.json` 的 `video_path` 并出现在 `submission.md` 的「运行录屏」一行。
+
+- 参数在 `tools/config/record.json`：`ffmpegPath` / `framerate` / `crf` / `preset`。
+  默认 10fps + crf 26，整屏录制（gdigrab），3840x1080 大约 200 KB/s，跑 10 分钟约 120 MB；
+  想更小就调低 `framerate` 或调高 `crf`。
+- `ffmpegPath` 是本机路径，换机器或走 PATH 都能用：脚本会依次尝试配置路径、同目录的 ffprobe、
+  裸命令 `ffmpeg`。
+- 没装 ffmpeg、或把 `enabled` 改成 `false` 时，自动跳过录屏，任务照常跑。
+- 只开窗口不采集结果：`open-A.cmd`（要顺便录屏就 `open-A.cmd -Record`）。
+- 这一轮不想录：`run-A.cmd -NoRecord`。
+
 单独检查某一轮是否合法：
 
 ```powershell

@@ -2,7 +2,9 @@
 param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [switch]$Record,
+    [string]$RecordPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,4 +99,27 @@ if ($PrepareOnly) {
     exit 0
 }
 
-& $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust
+$recording = $null
+if ($Record) {
+    . (Join-Path $PSScriptRoot 'record-screen.ps1')
+    if (-not $RecordPath) {
+        $RecordPath = Join-Path $taskDirResolved "results\$Run\$Run.mp4"
+    }
+    $recordDir = Split-Path -Parent $RecordPath
+    if ($recordDir -and -not (Test-Path -LiteralPath $recordDir)) {
+        New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
+    }
+    $recording = Start-ScreenRecording -OutPath $RecordPath
+}
+
+try {
+    & $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust
+}
+finally {
+    if ($null -ne $recording) {
+        $info = Stop-ScreenRecording -Recording $recording
+        if ($info -and $info.exists) {
+            Write-Host ("Recording file: {0} ({1} MB, {2} s)" -f $info.path, $info.size_mb, $info.duration_s)
+        }
+    }
+}

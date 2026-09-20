@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
-    [switch]$SkipPush
+    [switch]$SkipPush,
+    [switch]$NoRecord
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,7 +38,13 @@ Write-Host "Task: $taskId"
 Write-Host "Workspace will be reset before launch."
 Write-Host ""
 
-& (Join-Path $PSScriptRoot 'open-run.ps1') -TaskDir $taskDirResolved -Run $Run
+$recordPath = Join-Path $taskDirResolved "results\$Run\$Run.mp4"
+$openArgs = @{ TaskDir = $taskDirResolved; Run = $Run }
+if (-not $NoRecord) {
+    $openArgs['Record'] = $true
+    $openArgs['RecordPath'] = $recordPath
+}
+& (Join-Path $PSScriptRoot 'open-run.ps1') @openArgs
 
 Write-Host ""
 Write-Host "CLI exited. Collecting session and artifact snapshot..."
@@ -89,6 +96,12 @@ if (Test-Path -LiteralPath $summaryPath) {
     if ($baseUrl) {
         Write-Host "Initial permalink: $baseUrl/commit/$($summary.initial_sha)"
         Write-Host "Artifact permalink: $baseUrl/commit/$($summary.artifact_sha)"
+    }
+    if (Test-Path -LiteralPath $recordPath) {
+        $video = Get-Item -LiteralPath $recordPath
+        Write-Host ("Recording: {0} ({1} MB)" -f $video.FullName, [math]::Round($video.Length / 1MB, 1))
+    } else {
+        Write-Host "Recording: (none)"
     }
 }
 

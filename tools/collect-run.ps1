@@ -117,6 +117,18 @@ if ($repoUrl) {
     $trajectoryUrl = "$rawBase/main/tasks/$taskId/results/$Run/$sessionId.jsonl"
 }
 
+$videoPath = Join-Path $resultDir "$Run.mp4"
+$videoFile = ''
+$videoDuration = ''
+if (Test-Path -LiteralPath $videoPath) {
+    $videoFile = "$Run.mp4"
+    try {
+        . (Join-Path $PSScriptRoot 'record-screen.ps1')
+        $videoInfo = Get-RecordingInfo -Path $videoPath
+        $videoDuration = $videoInfo.duration_s
+    } catch { }
+}
+
 $summary = [ordered]@{
     task_id = $taskId
     run = $Run
@@ -129,6 +141,9 @@ $summary = [ordered]@{
     artifact_sha = $artifactSha
     artifact_permalink = $artifactPermalink
     artifact_branch = "task/$taskId/$Run"
+    video_file = $videoFile
+    video_path = $(if ($videoFile) { $videoPath } else { '' })
+    video_duration_s = $videoDuration
     run_valid = $runValid
     validity_note = $validityNote
     collected_at = (Get-Date).ToString('o')
