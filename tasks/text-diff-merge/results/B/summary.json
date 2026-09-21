@@ -10,8 +10,9 @@
     "artifact_sha":  "1c6e6b69cf27eebbd966a4865088feddc74c0699",
     "artifact_permalink":  "https://github.com/lucky-people/gsb-test/commit/1c6e6b69cf27eebbd966a4865088feddc74c0699",
     "artifact_branch":  "task/text-diff-merge/B",
-    "video_file":  "",
-    "video_path":  "",
+    "video_file":  "B.mp4",
+    "video_path":  "D:\\北京中强实习\\record1\\gsb-test\\tasks\\text-diff-merge\\results\\B\\B.mp4",
+    "video_duration_s":  75.9,
     "run_valid":  true,
     "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
     "collected_at":  "2026-09-21T10:50:17.0374648+08:00"

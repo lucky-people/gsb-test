@@ -12,7 +12,7 @@
     "artifact_branch":  "task/text-diff-merge/A",
     "video_file":  "A.mp4",
     "video_path":  "D:\\北京中强实习\\record1\\gsb-test\\tasks\\text-diff-merge\\results\\A\\A.mp4",
-    "video_duration_s":  4976.7,
+    "video_duration_s":  94.2,
     "run_valid":  true,
     "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
     "collected_at":  "2026-09-20T16:34:04.9881178+08:00"
