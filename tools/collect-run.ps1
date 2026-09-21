@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
-    [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run
+    [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
+    [int]$CliExitCode = 0,
+    [switch]$AllowInvalid
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,16 +61,6 @@ if (-not $sessionId) {
     throw "Could not find session_id in $($rollout.FullName)"
 }
 
-$resultDir = Join-Path $taskDirResolved "results\$Run"
-New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
-$trajectoryPath = Join-Path $resultDir "$sessionId.jsonl"
-Copy-Item -LiteralPath $rollout.FullName -Destination $trajectoryPath -Force
-
-$promptPath = Join-Path $taskDirResolved 'prompt.md'
-if (Test-Path -LiteralPath $promptPath) {
-    Copy-Item -LiteralPath $promptPath -Destination (Join-Path $resultDir 'prompt.md') -Force
-}
-
 $initialSha = $meta.initial_sha
 if (-not $initialSha) {
     throw "meta.json missing initial_sha"
@@ -76,9 +68,6 @@ if (-not $initialSha) {
 
 git -C $runDir add -A
 $tree = (git -C $runDir write-tree).Trim()
-$artifactSha = (git -C $runDir commit-tree $tree -p $initialSha -m "artifact $Run").Trim()
-git -C $runDir update-ref "refs/heads/task/$taskId/$Run" $artifactSha
-git -C $runDir reset --hard $artifactSha | Out-Null
 
 $userTurnCount = 0
 $completedCount = 0
@@ -105,6 +94,13 @@ finally {
 $runValid = ($userTurnCount -eq 1 -and $completedCount -ge 1 -and $abortedCount -eq 0)
 $validityNote = "user turns=$userTurnCount, task_complete=$completedCount, turn_aborted=$abortedCount"
 
+# The CLI itself must have exited cleanly too: a gateway error (504), a killed
+# window or a crash leaves the turn unfinished even when the workspace changed.
+if ($CliExitCode -ne 0) {
+    $validityNote += ", codex CLI exit code=$CliExitCode"
+    $runValid = $false
+}
+
 # A turn can "complete" without the agent doing anything (empty model reply,
 # immediate auth/stream error). Treat an unchanged workspace as invalid.
 $baseTree = (git -C $runDir rev-parse "$initialSha^{tree}").Trim()
@@ -113,9 +109,32 @@ if ($emptyRun) {
     $validityNote += ", no file changes"
     $runValid = $false
 }
+
+# Only a finished run produces artifacts: an unfinished one writes no results,
+# creates no artifact commit and pushes nothing.
+if (-not $runValid -and -not $AllowInvalid) {
+    Write-Warning "Run $Run did not finish, so no artifact was produced: $validityNote"
+    Write-Host "Nothing was written to results, no artifact commit was created and nothing was pushed."
+    Write-Host "Run reset-$Run.cmd and start a fresh run."
+    throw "run $Run is invalid: $validityNote"
+}
 if (-not $runValid) {
     $validityNote = "INVALID run, redo in a fresh window: " + $validityNote
 }
+
+$resultDir = Join-Path $taskDirResolved "results\$Run"
+New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
+$trajectoryPath = Join-Path $resultDir "$sessionId.jsonl"
+Copy-Item -LiteralPath $rollout.FullName -Destination $trajectoryPath -Force
+
+$promptPath = Join-Path $taskDirResolved 'prompt.md'
+if (Test-Path -LiteralPath $promptPath) {
+    Copy-Item -LiteralPath $promptPath -Destination (Join-Path $resultDir 'prompt.md') -Force
+}
+
+$artifactSha = (git -C $runDir commit-tree $tree -p $initialSha -m "artifact $Run").Trim()
+git -C $runDir update-ref "refs/heads/task/$taskId/$Run" $artifactSha
+git -C $runDir reset --hard $artifactSha | Out-Null
 
 $repoUrl = $meta.repo_url
 $artifactPermalink = $(if ($repoUrl) { "$($repoUrl.TrimEnd('/'))/commit/$artifactSha" } else { '' })

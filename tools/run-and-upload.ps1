@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
-    [switch]$SkipPush
+    [switch]$SkipPush,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,12 +38,34 @@ Write-Host "Task: $taskId"
 Write-Host "Workspace will be reset before launch."
 Write-Host ""
 
-& (Join-Path $PSScriptRoot 'open-run.ps1') -TaskDir $taskDirResolved -Run $Run
+$openArgs = @{ TaskDir = $taskDirResolved; Run = $Run }
+if ($Force) { $openArgs['Force'] = $true }
+& (Join-Path $PSScriptRoot 'open-run.ps1') @openArgs
+$cliExit = $LASTEXITCODE
+if ($null -eq $cliExit) { $cliExit = 0 }
 
 Write-Host ""
-Write-Host "CLI exited. Collecting session and artifact snapshot..."
+Write-Host ("CLI exited (exit code {0}). Checking whether the run finished before producing anything..." -f $cliExit)
 
-& (Join-Path $PSScriptRoot 'collect-run.ps1') -TaskDir $taskDirResolved -Run $Run
+$collectArgs = @{ TaskDir = $taskDirResolved; Run = $Run; CliExitCode = $cliExit }
+if ($Force) { $collectArgs['AllowInvalid'] = $true }
+$collected = $true
+try {
+    & (Join-Path $PSScriptRoot 'collect-run.ps1') @collectArgs
+} catch {
+    $collected = $false
+    Write-Warning $_.Exception.Message
+}
+
+if (-not $collected) {
+    Write-Host ""
+    Write-Host "=== RESULT ==="
+    Write-Host "Task: $taskId"
+    Write-Host "Run: $Run"
+    Write-Host "This run did not finish: no results, no artifact commit and no push."
+    Write-Host ("Retry: run reset-{0}.cmd first, then run-{0}.cmd again." -f $Run)
+    exit 3
+}
 
 if (-not $SkipPush) {
     Write-Host ""

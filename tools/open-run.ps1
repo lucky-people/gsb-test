@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$TaskDir,
     [Parameter(Mandatory=$true)][ValidateSet('A','B')][string]$Run,
     [switch]$PrepareOnly,
-    [switch]$SkipPreflight
+    [switch]$SkipPreflight,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +26,29 @@ $runDir = Join-Path $taskDirResolved $Run
 $codexHomeRoot = Join-Path $taskDirResolved ".codex-home\$Run"
 $runToken = Get-Date -Format 'yyyyMMdd-HHmmss'
 $codexHome = Join-Path $codexHomeRoot $runToken
+$runningFile = Join-Path $codexHomeRoot '.running'
+
+# Every run starts from scratch:
+#   1) refuse to start while a previous window for this run is still alive;
+#   2) wipe this run's earlier session homes so the new session cannot read
+#      anything left behind by a run that never finished.
+if (Test-Path -LiteralPath $runningFile) {
+    $previousPid = 0
+    $previousText = Get-Content -Raw -LiteralPath $runningFile -ErrorAction SilentlyContinue
+    if ($previousText -match 'pid=(\d+)') { $previousPid = [int]$Matches[1] }
+    if (-not $Force -and $previousPid -gt 0 -and (Get-Process -Id $previousPid -ErrorAction SilentlyContinue)) {
+        throw "Run $Run is still open in another window (PID $previousPid). Close that window (the X button) and run again, or pass -Force to rebuild anyway."
+    }
+}
+if (Test-Path -LiteralPath $codexHomeRoot) {
+    Get-ChildItem -LiteralPath $codexHomeRoot -Force | ForEach-Object {
+        try {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+        } catch {
+            throw "Could not clear the previous session home: $($_.FullName) is still in use. Close the previous window and retry. ($($_.Exception.Message))"
+        }
+    }
+}
 
 if (Test-Path -LiteralPath $runDir) {
     try {
@@ -36,6 +60,7 @@ if (Test-Path -LiteralPath $runDir) {
 New-Item -ItemType Directory -Path $codexHomeRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $codexHomeRoot 'current.txt'), $codexHome, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText($runningFile, ("pid={0}`nrun={1}`nstarted={2}`ncodex_home={3}`n" -f $PID, $Run, (Get-Date).ToString('o'), $codexHome), (New-Object System.Text.UTF8Encoding($false)))
 
 git clone --branch base --single-branch $bundle $runDir | Out-Null
 git -C $runDir switch -c "task/$taskId/$Run" | Out-Null
@@ -94,18 +119,26 @@ Write-Host "Workspace: $runDir"
 Write-Host "CODEX_HOME: $codexHome"
 
 if ($PrepareOnly) {
+    Remove-Item -LiteralPath $runningFile -Force -ErrorAction SilentlyContinue
     Write-Host "PrepareOnly specified; Codex CLI was not launched."
     exit 0
 }
 
-if (-not $SkipPreflight) {
-    Write-Host 'Checking relay connectivity before the run...'
-    try {
-        & (Join-Path $PSScriptRoot 'check-relay.ps1')
-    } catch {
-        Write-Warning ("Relay preflight failed: " + $_.Exception.Message)
-        throw 'Relay preflight failed. Fix the key/network first, or re-run with -SkipPreflight to force.'
+try {
+    if (-not $SkipPreflight) {
+        Write-Host 'Checking relay connectivity before the run...'
+        try {
+            & (Join-Path $PSScriptRoot 'check-relay.ps1')
+        } catch {
+            Write-Warning ("Relay preflight failed: " + $_.Exception.Message)
+            throw 'Relay preflight failed. Fix the key/network first, or re-run with -SkipPreflight to force.'
+        }
     }
-}
 
-& $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust
+    & $codexExe -C $runDir --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust
+}
+finally {
+    # Normal exit clears the marker. Closing the window with X skips this,
+    # and the next start treats the dead PID as "previous run finished".
+    Remove-Item -LiteralPath $runningFile -Force -ErrorAction SilentlyContinue
+}

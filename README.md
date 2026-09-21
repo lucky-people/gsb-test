@@ -83,11 +83,19 @@ open-B.cmd
 
 1. 删除旧的 `A/` 或 `B/` 工作区；
 2. 从 `baseline.bundle` 重新克隆；
-3. 删除旧的 `.codex-home/A` 或 `.codex-home/B`；
+3. 清空 `.codex-home/A` 或 `.codex-home/B` 里上一轮留下的会话目录；
 4. 新建一份独立的 CLI 会话目录；
 5. 以全自动模式启动 Codex CLI。
 
 这样上一轮的产物、会话历史和未提交文件都不会被下一轮读到。
+
+为了确保这一点，启动时还会检查 `.codex-home/<run>/.running` 标记：如果上一轮
+的窗口还开着（进程仍在），脚本会直接拒绝启动并提示先关掉那个窗口；如果标记是
+上次被强制关掉留下的（进程已不存在），就按「上一轮已结束」处理，照样清空重建。
+确实要在上一轮还开着的情况下重建，可以加 `-Force`。
+
+另外，点窗口右上角的 **X** 会连同启动器一起结束，所以那一轮不会进入采集和推送；
+只有在 CLI 里正常退出，`run-A.cmd` / `run-B.cmd` 才会继续走采集流程。
 
 ## 采集结果
 
@@ -106,6 +114,16 @@ collect-B.cmd
 - 生成 `summary.json`；
 - 把当前产物做成一个 parent 为初始快照的 commit；
 - 校验这一轮是否合法（只有一条 prompt、以 `task_complete` 结束、没有 `turn_aborted`），把结果写入 `summary.json` 的 `run_valid` / `validity_note`，不合法时会直接告警。
+
+**只有跑通的一轮才会有产物。** 校验不通过时（比如中途报 504、被 Ctrl+C 打断、
+窗口被关掉、CLI 退出码非 0，或者工作区没有任何改动），`collect-run.ps1` 不会写
+`results/`、不会创建产物 commit、也不会推送，而是打印原因并以非 0 退出；
+`run-A.cmd` / `run-B.cmd` 遇到这种情况会停在 `=== RESULT ===` 并提示先
+`reset-A.cmd` / `reset-B.cmd` 再重跑。确需留下一轮没跑通的记录时，可以显式加
+`-AllowInvalid`（`collect-run.ps1`）或 `-Force`（`run-and-upload.ps1`）。
+
+`tools/` 下的 `.ps1` 必须保持纯 ASCII：Windows PowerShell 5.1 会按系统 GBK
+代码页读取无 BOM 的脚本，中文文案要放在 UTF-8 数据文件里，由脚本显式按 UTF-8 读。
 
 ## 录屏（自己录）
 
