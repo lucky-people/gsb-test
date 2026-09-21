@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "cron-schedule",
+    "prompt_file":  "prompt.md",
+    "task_type":  "0-1代码生成",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/cron-schedule/base",
+    "initial_sha":  "624dbc827a9cd9c7bdefceec88baa272be6e6820",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/624dbc827a9cd9c7bdefceec88baa272be6e6820",
+    "created_at":  "2026-09-21T13:03:37.9112196+08:00"
+}
