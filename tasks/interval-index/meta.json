@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "interval-index",
+    "prompt_file":  "prompt.md",
+    "task_type":  "0-1代码生成",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/interval-index/base",
+    "initial_sha":  "980dbbff636b4d91f57299f2d83bf590d9e6f01c",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/980dbbff636b4d91f57299f2d83bf590d9e6f01c",
+    "created_at":  "2026-09-22T11:30:40.6565541+08:00"
+}
