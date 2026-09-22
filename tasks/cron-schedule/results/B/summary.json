@@ -10,8 +10,9 @@
     "artifact_sha":  "2780d5b618c082e9d9d61e28fc0d0db273831fac",
     "artifact_permalink":  "https://github.com/lucky-people/gsb-test/commit/2780d5b618c082e9d9d61e28fc0d0db273831fac",
     "artifact_branch":  "task/cron-schedule/B",
-    "video_file":  "",
-    "video_path":  "",
+    "video_file":  "B.mp4",
+    "video_path":  "D:\\北京中强实习\\record1\\gsb-test\\tasks\\cron-schedule\\results\\B\\B.mp4",
+    "video_duration_s":  80.5,
     "run_valid":  true,
     "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
     "collected_at":  "2026-09-22T11:07:58.8764975+08:00"
