@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "dir-sync",
+    "prompt_file":  "prompt.md",
+    "task_type":  "0-1代码生成",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/dir-sync/base",
+    "initial_sha":  "b3af0b9dc9381fc6acdbd8544827142714ea011e",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/b3af0b9dc9381fc6acdbd8544827142714ea011e",
+    "created_at":  "2026-09-22T11:26:01.5998841+08:00"
+}
