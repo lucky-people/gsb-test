@@ -1,0 +1,18 @@
+﻿{
+    "task_id":  "cron-schedule",
+    "run":  "B",
+    "language_framework":  "Python",
+    "initial_sha":  "624dbc827a9cd9c7bdefceec88baa272be6e6820",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/624dbc827a9cd9c7bdefceec88baa272be6e6820",
+    "session_id":  "01a0c6e6-9fa1-7fc0-9f5c-944686aa5784",
+    "trajectory_file":  "results/B/01a0c6e6-9fa1-7fc0-9f5c-944686aa5784.jsonl",
+    "trajectory_url":  "https://raw.githubusercontent.com/lucky-people/gsb-test/main/tasks/cron-schedule/results/B/01a0c6e6-9fa1-7fc0-9f5c-944686aa5784.jsonl",
+    "artifact_sha":  "2780d5b618c082e9d9d61e28fc0d0db273831fac",
+    "artifact_permalink":  "https://github.com/lucky-people/gsb-test/commit/2780d5b618c082e9d9d61e28fc0d0db273831fac",
+    "artifact_branch":  "task/cron-schedule/B",
+    "video_file":  "",
+    "video_path":  "",
+    "run_valid":  true,
+    "validity_note":  "user turns=1, task_complete=1, turn_aborted=0",
+    "collected_at":  "2026-09-22T11:07:58.8764975+08:00"
+}
