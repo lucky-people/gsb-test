@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "tlvframe",
+    "prompt_file":  "prompt.md",
+    "task_type":  "0-1代码生成",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/tlvframe/base",
+    "initial_sha":  "b1fc853d644082db2e6a3c3ff347bf6363b99d7e",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/b1fc853d644082db2e6a3c3ff347bf6363b99d7e",
+    "created_at":  "2026-09-23T09:53:16.3391072+08:00"
+}
