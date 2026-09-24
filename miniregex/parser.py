@@ -293,8 +293,8 @@ class _Parser:
                     "不支持的分组语法 '(?...'，仅支持非捕获组 '(?:...)'", pos
                 )
         index = None
-        self.group_count += 1
         if capturing:
+            self.group_count += 1
             index = self.group_count
         child = self._alternation()
         if self._peek() != ")":

@@ -134,7 +134,7 @@ class _Compiler:
         else:
             # hi - lo 层可选嵌套：a?? 式结构
             splits = []
-            for _ in range(max(0, hi - lo - 1)):
+            for _ in range(hi - lo):
                 splits.append(len(self.prog))
                 self.emit(None)  # SPLIT 占位
                 self.emit_node(child)
@@ -241,7 +241,8 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
                 pc += 1
                 continue
         elif kind == _SPLIT:
-            stack.append((op[2], pos, caps))
+            # 压栈时必须快照捕获槽：分支回退后 caps 要恢复到进入分支时的状态
+            stack.append((op[2], pos, caps[:]))
             pc = op[1]
             continue
         elif kind == _JMP:
