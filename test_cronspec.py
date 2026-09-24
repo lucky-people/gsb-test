@@ -1,5 +1,6 @@
 """cronspec 标准库 unittest 测试套件。"""
 
+import random
 import time
 import unittest
 from datetime import datetime, timezone
@@ -96,13 +97,13 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assert_error("5-1 * * * *", "minute", "5-1", 0, ["倒序"])
 
     def test_step_zero_or_negative(self):
-        self.assert_error("*/0 * * * *", "minute", "*/0", 2, ["步进"])
-        self.assert_error("1-10/-2 * * * *", "minute", "1-10/-2", 5, ["步进"])
+        self.assert_error("*/0 * * * *", "minute", "0", 2, ["步进"])
+        self.assert_error("1-10/-2 * * * *", "minute", "-2", 5, ["步进"])
 
     def test_empty_fragment(self):
-        self.assert_error("1,,2 * * * *", "minute", "1,,2", 2, ["空片段"])
-        self.assert_error(",1 * * * *", "minute", ",1", 0, ["空片段"])
-        self.assert_error("1, * * * *", "minute", "1,", 2, ["空片段"])
+        self.assert_error("1,,2 * * * *", "minute", "", 2, ["空片段"])
+        self.assert_error(",1 * * * *", "minute", "", 0, ["空片段"])
+        self.assert_error("1, * * * *", "minute", "", 2, ["空片段"])
 
     def test_unknown_names(self):
         self.assert_error(
@@ -114,11 +115,152 @@ class SyntaxErrorTests(unittest.TestCase):
 
     def test_invalid_characters(self):
         self.assert_error("1.5 * * * *", "minute", "1.5", 0)
-        self.assert_error("1- * * * *", "minute", "1-", 0)
+        self.assert_error("1- * * * *", "minute", "", 2, ["缺少结束值"])
         self.assert_error("*-5 * * * *", "minute", "*-5", 0)
         self.assert_error("5/10 * * * *", "minute", "5/10", 0, ["步进"])
         self.assert_error("** * * * *", "minute", "**", 0)
-        self.assert_error("*/*5 * * * *", "minute", "*/*5", 2)
+        self.assert_error("*/*5 * * * *", "minute", "*5", 2, ["步进"])
+
+
+class ErrorLocationTests(unittest.TestCase):
+    """错误定位约定：value 是最小出错片段原文，position 指向它的 0 基起点。
+
+    每条用例既断言精确的 (field, value, position)，也断言不变量
+    ``expr[position:position+len(value)] == value``。
+    """
+
+    # (表达式, field, value, position, 报错说明中应出现的关键词)
+    CASES = [
+        # 数字越界
+        ("60 0 * * *", "minute", "60", 0, "超出允许范围"),
+        ("0 24 * * *", "hour", "24", 2, "超出允许范围"),
+        ("0 0 0 * *", "day_of_month", "0", 4, "超出允许范围"),
+        ("0 0 32 * *", "day_of_month", "32", 4, "超出允许范围"),
+        ("0 0 * 0 *", "month", "0", 6, "超出允许范围"),
+        ("0 0 * 13 *", "month", "13", 6, "超出允许范围"),
+        ("0 0 * * 8", "day_of_week", "8", 8, "超出允许范围"),
+        # 范围倒序
+        ("5-1 0 * * *", "minute", "5-1", 0, "倒序"),
+        ("0 0 * 12-1 *", "month", "12-1", 6, "倒序"),
+        ("5-1/2 0 * * *", "minute", "5-1", 0, "倒序"),
+        # 步进非法
+        ("*/0 0 * * *", "minute", "0", 2, "步进"),
+        ("0 */0 * * *", "hour", "0", 4, "步进"),
+        ("1-5/0 0 * * *", "minute", "0", 4, "步进"),
+        ("0 0 * * FRI/SAT", "day_of_week", "SAT", 12, "步进"),
+        ("0 0 * * /5", "day_of_week", "/5", 8, "步进"),
+        # 空片段
+        ("1,,2 0 * * *", "minute", "", 2, "空片段"),
+        (",1 0 * * *", "minute", "", 0, "空片段"),
+        ("1, 0 * * *", "minute", "", 2, "空片段"),
+        ("0 0 * * ,", "day_of_week", "", 8, "空片段"),
+        # 未知名字
+        ("0 0 * JANUARY *", "month", "JANUARY", 6, "未知名字"),
+        ("0 0 * * MONDAY", "day_of_week", "MONDAY", 8, "未知名字"),
+        # 非法范围字符
+        ("0 a * * *", "hour", "a", 2, "非法字符"),
+        ("0 0 * * 1--2", "day_of_week", "1--2", 8, "范围符"),
+        ("-1 0 * * *", "minute", "", 0, "缺少起始值"),
+        # 未闭合范围
+        ("0 0 * jan- *", "month", "", 10, "缺少结束值"),
+        ("0 0 * * 1-", "day_of_week", "", 10, "缺少结束值"),
+        # 字段数错
+        ("0 0 1 *", None, "0 0 1 *", 0, "5 个字段"),
+        ("0 0 1 * * *", None, "0 0 1 * * *", 0, "5 个字段"),
+        # 短写非法
+        ("@never", None, "@never", 0, "未知短写"),
+        ("@", None, "@", 0, "未知短写"),
+        # 空表达式
+        ("", None, "", 0, "为空"),
+    ]
+
+    def test_exact_field_value_position(self):
+        for expr, field, value, position, keyword in self.CASES:
+            with self.subTest(expr=expr):
+                with self.assertRaises(ScheduleSyntaxError) as captured:
+                    parse(expr)
+                error = captured.exception
+                self.assertEqual(error.field, field)
+                self.assertEqual(error.value, value)
+                self.assertEqual(error.position, position)
+                self.assertIn(keyword, str(error))
+
+    def test_location_invariant(self):
+        for expr, _field, _value, _position, _keyword in self.CASES:
+            with self.subTest(expr=expr):
+                with self.assertRaises(ScheduleSyntaxError) as captured:
+                    parse(expr)
+                error = captured.exception
+                end = error.position + len(error.value)
+                self.assertEqual(expr[error.position:end], error.value)
+
+
+class MutationTests(unittest.TestCase):
+    """对合法表达式做固定种子的随机字符变异，校验报错路径的健壮性。"""
+
+    VALID_EXPRESSIONS = (
+        "* * * * *",
+        "0 0 * * *",
+        "*/15 9-17/2 1,15 JAN-MAR MON-FRI",
+        "1-5,20-25/2 8-10/2 * JAN-MAR MON,WED",
+        "0 0 29 2 *",
+        "30 9 * * MON-FRI",
+        "@daily",
+        "@hourly",
+        "@yearly",
+    )
+
+    # 覆盖语法字符、名字字母、分隔空白与 Unicode 陷阱字符。
+    MUTATION_ALPHABET = "0123456789*,/-@ \t\n.aZJNMF~²"
+
+    FIELDS = (None, "minute", "hour", "day_of_month", "month", "day_of_week")
+
+    def _mutate(self, rng, expr):
+        chars = list(expr)
+        for _ in range(rng.randint(1, 3)):
+            operation = rng.choice(("insert", "delete", "replace"))
+            if operation == "insert" or not chars:
+                chars.insert(
+                    rng.randint(0, len(chars)),
+                    rng.choice(self.MUTATION_ALPHABET),
+                )
+            elif operation == "delete":
+                del chars[rng.randrange(len(chars))]
+            else:
+                chars[rng.randrange(len(chars))] = rng.choice(
+                    self.MUTATION_ALPHABET
+                )
+        return "".join(chars)
+
+    def test_random_mutations_keep_error_contract(self):
+        rng = random.Random(20260924)
+        error_count = 0
+        for expr in self.VALID_EXPRESSIONS:
+            for _ in range(50):
+                mutated = self._mutate(rng, expr)
+                try:
+                    parse(mutated)
+                except ScheduleSyntaxError as error:
+                    error_count += 1
+                    self.assertIn(error.field, self.FIELDS, repr(mutated))
+                    self.assertIsInstance(error.value, str)
+                    self.assertIsInstance(error.position, int)
+                    self.assertGreaterEqual(error.position, 0)
+                    end = error.position + len(error.value)
+                    self.assertEqual(
+                        mutated[error.position:end],
+                        error.value,
+                        "不变量被破坏：%r -> field=%r value=%r position=%r"
+                        % (mutated, error.field, error.value, error.position),
+                    )
+                    self.assertTrue(str(error))
+                except Exception as unexpected:
+                    self.fail(
+                        "变异输入 %r 漏出了非 ScheduleSyntaxError：%r"
+                        % (mutated, unexpected)
+                    )
+        # 确保变异确实制造出了大量非法输入，而不是全部意外合法。
+        self.assertGreater(error_count, 100)
 
 
 class MatchesTests(unittest.TestCase):

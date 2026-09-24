@@ -10,10 +10,14 @@ class ScheduleSyntaxError(ValueError):
         出错字段名（``minute`` / ``hour`` / ``day_of_month`` / ``month`` /
         ``day_of_week``）。字段数不对或短写非法时为 ``None``。
     value:
-        出错片段原文；字段级错误为片段原文，表达式级错误为去除首尾空白后的
-        整个表达式。
+        最小出错片段原文（字段级错误定位到出错的数字、名字、步进值或
+        子片段；空片段等「缺失」类错误为空字符串）；表达式级错误（字段数
+        不对、短写非法）为去除首尾空白后的整个表达式。
     position:
-        出错片段在原始表达式中的起始下标（0 基）。
+        ``value`` 在原始表达式中的起始下标（0 基）。
+
+    不变量：对字符串输入 ``expr`` 恒有
+    ``expr[position:position + len(value)] == value``。
     """
 
     def __init__(self, field, value, position, reason):
