@@ -192,7 +192,8 @@ def snapshot(
             else:
                 is_link_follow = is_link and not follow_symlinks
             is_dir = os.path.isdir(abs_p) if (follow_symlinks or not is_link) else False
-            if is_dir and is_ignored(rel, is_dir, rules):
+            # 文件与目录都参与忽略判定；目录命中即剪掉整棵子树
+            if is_ignored(rel, is_dir, rules):
                 continue
             if is_link_follow:
                 entries.append(

@@ -50,7 +50,7 @@ bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 
 ## 忽略规则（ignore）
 
-`snapshot(root, ignore=[...])` 按顺序应用规则，**最后一条匹配的规则决定**是否忽略：
+`snapshot(root, ignore=[...])` 按书写顺序逐条求值，**最后一条匹配的规则决定**是否忽略：
 
 | 规则形式 | 语义 |
 | --- | --- |
@@ -59,12 +59,18 @@ bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 | `build/` | 以 `/` 结尾：忽略整棵子树（目录本身及其下所有内容） |
 | `!keep.log` | `!` 前缀：重新包含（取消之前的忽略） |
 
+文件与目录都参与判定：普通规则表示忽略，`!` 规则表示重新包含；
+目录规则命中即剪掉整棵子树（不再递归进入），因此被忽略目录里的条目
+无法靠后续的 `!` 规则复活（与 gitignore 一致）。
+
 示例：
 
 ```python
 ignore = ["*.log", "!keep.log"]   # 忽略所有 .log，但保留 keep.log
 ignore = ["!keep.log", "*.log"]   # 顺序反过来：keep.log 也被忽略（最后匹配生效）
 ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
+ignore = ["*.tmp", "**/cache/", "!cache/keep.tmp"]
+# cache/ 子树被 "**/cache/" 整体剪掉，"!cache/keep.tmp" 不会生效
 ```
 
 ## 安全约束
@@ -73,7 +79,9 @@ ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
   重复路径一律抛 `ManifestError`，从根上杜绝目录穿越；
 - `apply` 在修改任何文件**之前**先全量校验清单，并核对 source 里每个
   待写文件的 size 与 sha256，任一不一致即抛 `ApplyError`，此时磁盘零改动；
-- `dry_run=True` 时只计算报告，不修改磁盘上的任何字节。
+- 快照之后源文件被改动时，`apply` 在动手之前抛 `ApplyError`，目标目录保持原样；
+- `dry_run=True` 时只计算并返回报告，不修改磁盘上的任何字节
+  （目标目录的内容与 mtime 都保持不变）。
 
 ## 幂等与原子写策略
 
@@ -120,7 +128,8 @@ python3 -m unittest test_dirsync -v
 覆盖：清单确定性、JSON 往返、分块哈希（0 字节与 >8 MiB）、空目录、
 非 ASCII 与空格文件名、忽略规则顺序与 `!` 重新包含、非法路径、
 diff 四类结果、apply 原子性与幂等、prune 开关、dry_run、
-源文件被改动时报错、verify 检出篡改与多余条目。
+dry_run 下目标 mtime 与内容不变、源文件被改动时报错、
+verify 检出篡改与多余条目。
 
 ## 模块结构
 

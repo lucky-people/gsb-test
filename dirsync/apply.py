@@ -154,7 +154,7 @@ def apply(
     report = ApplyReport(
         created=created, updated=updated, deleted=deleted, unchanged=unchanged
     )
-    if dry_run and False:
+    if dry_run:
         return report
 
     entries: Dict[str, object] = {e.path: e for e in manifest}

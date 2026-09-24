@@ -349,5 +349,83 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestIgnoreOrderRegression(TempDirCase):
+    """回归：规则按书写顺序逐条求值，最后一条匹配的规则决定结果。"""
+
+    def test_reinclude_after_star(self):
+        # ["*.log", "!logs/keep.log"]：后面的 ! 重新包含生效
+        make_file(self.p("drop.log"), b"d")
+        make_file(self.p("logs/a.log"), b"a")
+        make_file(self.p("logs/keep.log"), b"k")
+        paths = snapshot(self.tmp, ignore=["*.log", "!logs/keep.log"]).paths()
+        self.assertNotIn("drop.log", paths)
+        self.assertNotIn("logs/a.log", paths)
+        self.assertIn("logs/keep.log", paths)
+
+    def test_later_plain_rule_overrides_earlier_negation(self):
+        # ["!keep.txt", "*.txt"]：后面的普通规则覆盖前面的 !
+        make_file(self.p("keep.txt"), b"k")
+        make_file(self.p("drop.log"), b"d")
+        paths = snapshot(self.tmp, ignore=["!keep.txt", "*.txt"]).paths()
+        self.assertNotIn("keep.txt", paths)
+        self.assertIn("drop.log", paths)
+
+    def test_mixed_order_three_rules(self):
+        # ["*.tmp", "**/cache/", "!cache/keep.tmp"]：三条以上混合顺序
+        make_file(self.p("a.tmp"), b"t")
+        make_file(self.p("cache/keep.tmp"), b"k")
+        make_file(self.p("cache/data.txt"), b"d")
+        make_file(self.p("sub/cache/x.tmp"), b"x")
+        make_file(self.p("keep.txt"), b"k")
+        ignore = ["*.tmp", "**/cache/", "!cache/keep.tmp"]
+        paths = snapshot(self.tmp, ignore=ignore).paths()
+        self.assertNotIn("a.tmp", paths)           # 规则 1：basename 匹配
+        self.assertNotIn("cache", paths)           # 规则 2：目录命中剪掉整棵子树
+        self.assertNotIn("cache/keep.tmp", paths)  # 父目录被剪，! 无法复活
+        self.assertNotIn("cache/data.txt", paths)
+        self.assertNotIn("sub/cache", paths)       # ** 跨层匹配任意深度的 cache/
+        self.assertIn("keep.txt", paths)
+
+
+class TestDryRunReadOnly(TempDirCase):
+    """回归：dry_run=True 只返回报告，目标目录一个字节都不能改。"""
+
+    def setUp(self):
+        super().setUp()
+        self.src = self.p("src")
+        self.dst = self.p("dst")
+        os.makedirs(self.src)
+        make_file(self.p("src/a.txt"), b"aaa")
+        make_file(self.p("src/sub/b.txt"), b"bbb")
+        self.manifest = snapshot(self.src)
+
+    def test_dry_run_preserves_mtime_and_content(self):
+        apply(self.src, self.manifest, self.dst)
+        # 制造差异：多余文件待删 + 内容被改待更新
+        make_file(self.p("dst/extra.txt"), b"extra")
+        make_file(self.p("dst/a.txt"), b"tampered")
+        watched = [self.dst, self.p("dst/a.txt"),
+                   self.p("dst/extra.txt"), self.p("dst/sub")]
+        mtimes_before = {p: os.stat(p).st_mtime_ns for p in watched}
+        contents_before = {}
+        for root, _dirs, files in os.walk(self.dst):
+            for name in files:
+                fp = os.path.join(root, name)
+                with open(fp, "rb") as f:
+                    contents_before[os.path.relpath(fp, self.dst)] = f.read()
+
+        r = apply(self.src, self.manifest, self.dst, dry_run=True)
+        # 报告如实反映差异……
+        self.assertEqual(r.updated, ["a.txt"])
+        self.assertEqual(r.deleted, ["extra.txt"])
+        # ……但磁盘分毫未动：mtime 与内容都不变
+        for path, mtime in mtimes_before.items():
+            self.assertEqual(os.stat(path).st_mtime_ns, mtime,
+                             f"dry_run 改动了 {path} 的 mtime")
+        for rel, data in contents_before.items():
+            with open(os.path.join(self.dst, rel), "rb") as f:
+                self.assertEqual(f.read(), data, f"dry_run 改动了 {rel} 的内容")
+
+
 if __name__ == "__main__":
     unittest.main()
