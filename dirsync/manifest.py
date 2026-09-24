@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional, Tuple
 
 from .errors import ManifestError
-from .paths import compile_rules, is_ignored, validate_relpath
+from .paths import compile_rules, validate_relpath
 
 #: 计算文件 sha256 时的分块大小（1 MiB）
 CHUNK_SIZE = 1024 * 1024
@@ -176,12 +176,23 @@ def snapshot(
     条目按 POSIX 相对路径排序（与 sorted() 一致）；空目录也会进清单。
     """
     rules = compile_rules(ignore)
+    # 只有存在 ! 规则时，被忽略的目录里才可能有被重新包含的条目，
+    # 否则命中即剪掉整棵子树，无需下钻。
+    has_negated = any(rule.negated for rule in rules)
     root = os.fspath(root)
     if not os.path.isdir(root):
         raise ManifestError(f"快照根目录不存在或不是目录: {root!r}")
     entries: List[ManifestEntry] = []
 
-    def walk(dir_abs: str, dir_rel: str) -> None:
+    def decide(rel: str, is_dir: bool) -> Optional[bool]:
+        """逐条求值规则：None 表示无规则命中，否则为最后一条命中规则的结果。"""
+        decision: Optional[bool] = None
+        for rule in rules:
+            if rule.matches(rel, is_dir):
+                decision = not rule.negated
+        return decision
+
+    def walk(dir_abs: str, dir_rel: str, inherited_ignored: bool) -> None:
         for name in sorted(os.listdir(dir_abs)):
             abs_p = os.path.join(dir_abs, name)
             rel = name if not dir_rel else dir_rel + "/" + name
@@ -192,7 +203,13 @@ def snapshot(
             else:
                 is_link_follow = is_link and not follow_symlinks
             is_dir = os.path.isdir(abs_p) if (follow_symlinks or not is_link) else False
-            if is_dir and is_ignored(rel, is_dir, rules):
+            decision = decide(rel, is_dir)
+            # 自身无规则命中时继承父目录的忽略状态（目录被忽略即剪掉整棵子树，
+            # 除非后续 ! 规则把子条目重新包含进来）
+            ignored = decision if decision is not None else inherited_ignored
+            if ignored:
+                if is_dir and not is_link_follow and has_negated:
+                    walk(abs_p, rel, True)
                 continue
             if is_link_follow:
                 entries.append(
@@ -200,13 +217,13 @@ def snapshot(
                 )
             elif is_dir:
                 entries.append(ManifestEntry(rel, KIND_DIR))
-                walk(abs_p, rel)
+                walk(abs_p, rel, False)
             else:
                 st = os.stat(abs_p)
                 entries.append(
                     ManifestEntry(rel, KIND_FILE, st.st_size, hash_file(abs_p), None)
                 )
 
-    walk(root, "")
+    walk(root, "", False)
     entries.sort(key=lambda e: e.path)
     return Manifest(entries)

@@ -59,12 +59,19 @@ bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 | `build/` | 以 `/` 结尾：忽略整棵子树（目录本身及其下所有内容） |
 | `!keep.log` | `!` 前缀：重新包含（取消之前的忽略） |
 
+- 文件与目录都参与规则判定；目录被忽略时整棵子树被剪掉，
+  除非其后有 `!` 规则把子树里的条目重新包含进来；
+- 子条目自身没有命中任何规则时，继承父目录的忽略状态；
+- 重新包含是普通的一条规则，没有特殊优先级：排在其后的普通规则可以再次覆盖它。
+
 示例：
 
 ```python
 ignore = ["*.log", "!keep.log"]   # 忽略所有 .log，但保留 keep.log
 ignore = ["!keep.log", "*.log"]   # 顺序反过来：keep.log 也被忽略（最后匹配生效）
 ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
+ignore = ["*.tmp", "**/cache/", "!cache/keep.tmp"]
+# 忽略所有 .tmp 与任意层级的 cache/ 子树，但重新包含 cache/keep.tmp
 ```
 
 ## 安全约束
@@ -73,7 +80,15 @@ ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
   重复路径一律抛 `ManifestError`，从根上杜绝目录穿越；
 - `apply` 在修改任何文件**之前**先全量校验清单，并核对 source 里每个
   待写文件的 size 与 sha256，任一不一致即抛 `ApplyError`，此时磁盘零改动；
-- `dry_run=True` 时只计算报告，不修改磁盘上的任何字节。
+- `dry_run=True` 时只计算并返回报告，不修改磁盘上的任何字节——
+  目标目录及其父目录的内容、mtime 都保持不变（源文件被篡改时同样先抛
+  `ApplyError`，因为复核发生在报告返回之前）。
+
+```python
+report = dirsync.apply(src, manifest, dst, dry_run=True)  # 预览，不落盘
+print(report.created, report.updated, report.deleted)
+report = dirsync.apply(src, manifest, dst, prune=False)   # 保留 dst 里多出的条目
+```
 
 ## 幂等与原子写策略
 

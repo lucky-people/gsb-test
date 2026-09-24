@@ -154,7 +154,9 @@ def apply(
     report = ApplyReport(
         created=created, updated=updated, deleted=deleted, unchanged=unchanged
     )
-    if dry_run and False:
+    if dry_run:
+        # 承诺语义：只计算报告，目标目录一个字节都不能改。
+        # 至此只做过只读操作（快照、diff、源文件哈希复核），未触碰磁盘。
         return report
 
     entries: Dict[str, object] = {e.path: e for e in manifest}
