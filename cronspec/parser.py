@@ -52,8 +52,12 @@ def _tokenize(expr):
     return tokens
 
 
-def _resolve_value(token, field_name, name_map, field_text, position):
-    """把数字或名字（如 JAN、MON）解析为整数，并做范围校验。"""
+def _resolve_value(token, field_name, name_map, position):
+    """把数字或名字（如 JAN、MON）解析为整数，并做范围校验。
+
+    报错时 ``value`` 取该词元原文，``position`` 指向它在原始表达式中的
+    起始下标。
+    """
     if token.isdigit():
         number = int(token)
     elif name_map is not None and token.isalpha():
@@ -61,7 +65,7 @@ def _resolve_value(token, field_name, name_map, field_text, position):
         if upper_token not in name_map:
             raise ScheduleSyntaxError(
                 field_name,
-                field_text,
+                token,
                 position,
                 "%s 字段存在未知名字 %r，支持 %s"
                 % (field_name, token, "、".join(name_map.keys())),
@@ -70,7 +74,7 @@ def _resolve_value(token, field_name, name_map, field_text, position):
     else:
         raise ScheduleSyntaxError(
             field_name,
-            field_text,
+            token,
             position,
             "%s 字段包含非法字符 %r，只允许数字、范围 - 、步进 / 、逗号以及"
             "受支持的名字" % (field_name, token),
@@ -80,7 +84,7 @@ def _resolve_value(token, field_name, name_map, field_text, position):
     if number < low or number > high:
         raise ScheduleSyntaxError(
             field_name,
-            field_text,
+            token,
             position,
             "%s 字段的值 %d 超出允许范围 %d-%d"
             % (field_name, number, low, high),
@@ -91,12 +95,17 @@ def _resolve_value(token, field_name, name_map, field_text, position):
     return number
 
 
-def _parse_fragment(fragment, field_name, name_map, field_text, position):
-    """解析单个逗号片段，如 ``*``、``1-5``、``30-40/5``。"""
+def _parse_fragment(fragment, field_name, name_map, position):
+    """解析单个逗号片段，如 ``*``、``1-5``、``30-40/5``。
+
+    ``position`` 是片段在原始表达式中的起始下标。所有报错都遵循定位约定：
+    ``value`` 是最小出错片段原文，``position`` 指向它，即恒有
+    ``expr[position:position+len(value)] == value``。
+    """
     if fragment == "":
         raise ScheduleSyntaxError(
             field_name,
-            field_text,
+            "",
             position,
             "%s 字段存在空片段，逗号两侧必须都有内容" % field_name,
         )
@@ -105,7 +114,7 @@ def _parse_fragment(fragment, field_name, name_map, field_text, position):
     if len(slash_parts) > 2:
         raise ScheduleSyntaxError(
             field_name,
-            field_text,
+            fragment,
             position,
             "%s 字段的片段 %r 中步进符 / 只能出现一次"
             % (field_name, fragment),
@@ -117,7 +126,7 @@ def _parse_fragment(fragment, field_name, name_map, field_text, position):
         if not step_token.isdigit() or int(step_token) == 0:
             raise ScheduleSyntaxError(
                 field_name,
-                field_text,
+                step_token,
                 position + len(base) + 1,
                 "%s 字段的步进值 %r 必须是正整数（不允许 0 或负数）"
                 % (field_name, step_token),
@@ -137,43 +146,42 @@ def _parse_fragment(fragment, field_name, name_map, field_text, position):
         if base.startswith("*"):
             raise ScheduleSyntaxError(
                 field_name,
-                field_text,
+                base,
                 position,
                 "%s 字段的片段 %r 非法，星号只能单独作为范围起点"
-                % (field_name, fragment),
+                % (field_name, base),
             )
         range_parts = base.split("-")
         if len(range_parts) > 2:
             raise ScheduleSyntaxError(
                 field_name,
-                field_text,
+                base,
                 position,
                 "%s 字段的片段 %r 中范围符 - 只能出现一次"
-                % (field_name, fragment),
+                % (field_name, base),
             )
         start_value = _resolve_value(
-            range_parts[0], field_name, name_map, field_text, position
+            range_parts[0], field_name, name_map, position
         )
         if len(range_parts) == 2:
             if range_parts[1] == "":
                 raise ScheduleSyntaxError(
                     field_name,
-                    field_text,
+                    base,
                     position,
-                    "%s 字段的范围 %r 缺少结束值" % (field_name, fragment),
+                    "%s 字段的范围 %r 缺少结束值" % (field_name, base),
                 )
             end_position = position + base.index("-") + 1
             end_value = _resolve_value(
                 range_parts[1],
                 field_name,
                 name_map,
-                field_text,
                 end_position,
             )
             if start_value > end_value:
                 raise ScheduleSyntaxError(
                     field_name,
-                    field_text,
+                    base,
                     position,
                     "%s 字段范围倒序：%d 大于 %d，范围必须从小到大"
                     % (field_name, start_value, end_value),
@@ -183,7 +191,7 @@ def _parse_fragment(fragment, field_name, name_map, field_text, position):
         if step is not None and len(range_parts) == 1:
             raise ScheduleSyntaxError(
                 field_name,
-                field_text,
+                fragment,
                 position,
                 "%s 字段的片段 %r 非法，步进写法必须是 */n 或 范围/n 形式"
                 % (field_name, fragment),
@@ -205,7 +213,6 @@ def _parse_field(field_text, field_name, field_start):
             fragment,
             field_name,
             name_map,
-            field_text,
             field_start + offset,
         )
         values.update(fragment_values)
@@ -228,6 +235,11 @@ def parse(expr):
     if stripped == "":
         raise ScheduleSyntaxError(None, stripped, 0, "表达式为空")
 
+    # 表达式级报错的 value 是去除首尾空白后的整个表达式，position 指向
+    # 这段文本在原始表达式中的起点，保证 expr[position:position+len(value)]
+    # == value 不变量对前导空白同样成立。
+    stripped_start = len(expr) - len(expr.lstrip())
+
     tokens = _tokenize(expr)
 
     if stripped[0] == "@":
@@ -236,7 +248,7 @@ def parse(expr):
             raise ScheduleSyntaxError(
                 None,
                 stripped,
-                0,
+                stripped_start,
                 "短写表达式不能再附带其他字段",
             )
         if token_text not in SHORTCUTS:
@@ -255,7 +267,7 @@ def parse(expr):
         raise ScheduleSyntaxError(
             None,
             stripped,
-            0,
+            stripped_start,
             "表达式必须由 5 个字段（分 时 日 月 周）或一个合法短写组成，"
             "实际切分出 %d 个字段" % len(tokens),
         )

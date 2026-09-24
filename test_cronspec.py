@@ -1,5 +1,6 @@
 """cronspec 标准库 unittest 测试套件。"""
 
+import random
 import time
 import unittest
 from datetime import datetime, timezone
@@ -96,13 +97,13 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assert_error("5-1 * * * *", "minute", "5-1", 0, ["倒序"])
 
     def test_step_zero_or_negative(self):
-        self.assert_error("*/0 * * * *", "minute", "*/0", 2, ["步进"])
-        self.assert_error("1-10/-2 * * * *", "minute", "1-10/-2", 5, ["步进"])
+        self.assert_error("*/0 * * * *", "minute", "0", 2, ["步进"])
+        self.assert_error("1-10/-2 * * * *", "minute", "-2", 5, ["步进"])
 
     def test_empty_fragment(self):
-        self.assert_error("1,,2 * * * *", "minute", "1,,2", 2, ["空片段"])
-        self.assert_error(",1 * * * *", "minute", ",1", 0, ["空片段"])
-        self.assert_error("1, * * * *", "minute", "1,", 2, ["空片段"])
+        self.assert_error("1,,2 * * * *", "minute", "", 2, ["空片段"])
+        self.assert_error(",1 * * * *", "minute", "", 0, ["空片段"])
+        self.assert_error("1, * * * *", "minute", "", 2, ["空片段"])
 
     def test_unknown_names(self):
         self.assert_error(
@@ -118,7 +119,135 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assert_error("*-5 * * * *", "minute", "*-5", 0)
         self.assert_error("5/10 * * * *", "minute", "5/10", 0, ["步进"])
         self.assert_error("** * * * *", "minute", "**", 0)
-        self.assert_error("*/*5 * * * *", "minute", "*/*5", 2)
+        self.assert_error("*/*5 * * * *", "minute", "*5", 2)
+
+
+class ErrorLocalizationTests(unittest.TestCase):
+    """错误定位约定：value 是最小出错片段原文，position 指向它。"""
+
+    # 评审报告的 6 条错位用例，逐条给出精确片段与位置。
+    EXACT_CASES = [
+        ("*/0 0 * * *", "minute", "0", 2),
+        ("0 */0 * * *", "hour", "0", 4),
+        ("1-5/0 0 * * *", "minute", "0", 4),
+        ("1,,2 0 * * *", "minute", "", 2),
+        ("1, 0 * * *", "minute", "", 2),
+        ("0 0 * * FRI/SAT", "day_of_week", "SAT", 12),
+    ]
+
+    # 全部畸形输入都必须报错，且满足
+    # expr[position:position+len(value)] == value。
+    INVARIANT_CASES = [
+        "60 0 * * *",
+        "0 24 * * *",
+        "0 0 0 * *",
+        "0 0 32 * *",
+        "0 0 * 0 *",
+        "0 0 * 13 *",
+        "0 0 * * 8",
+        "5-1 0 * * *",
+        "0 0 * 12-1 *",
+        "*/0 0 * * *",
+        "0 */0 * * *",
+        "5-1/2 0 * * *",
+        "1-5/0 0 * * *",
+        "1,,2 0 * * *",
+        ",1 0 * * *",
+        "1, 0 * * *",
+        "0 0 * * ,",
+        "0 0 * JANUARY *",
+        "0 0 * * MONDAY",
+        "0 0 * jan- *",
+        "@never",
+        "@",
+        "0 0 1 *",
+        "0 0 1 * * *",
+        "",
+        "0 a * * *",
+        "0 0 * * /5",
+        "0 0 * * 1-",
+        "-1 0 * * *",
+        "0 0 * * 1--2",
+        "0 0 * * FRI/SAT",
+    ]
+
+    def test_exact_fragment_and_position(self):
+        for expr, field, value, position in self.EXACT_CASES:
+            with self.assertRaises(ScheduleSyntaxError) as captured:
+                parse(expr)
+            error = captured.exception
+            self.assertEqual(error.field, field, expr)
+            self.assertEqual(error.value, value, expr)
+            self.assertEqual(error.position, position, expr)
+
+    def test_localization_invariant(self):
+        for expr in self.INVARIANT_CASES:
+            with self.assertRaises(ScheduleSyntaxError, msg=expr) as captured:
+                parse(expr)
+            error = captured.exception
+            located = expr[error.position : error.position + len(error.value)]
+            self.assertEqual(located, error.value, expr)
+            self.assertTrue(str(error), expr)
+
+
+class MutationTests(unittest.TestCase):
+    """对合法表达式做固定种子随机变异，抛错必须遵守定位约定。"""
+
+    VALID_EXPRESSIONS = [
+        "* * * * *",
+        "30 9 * * MON-FRI",
+        "*/15 1-5/2 1,15 JAN-MAR MON,WED,FRI",
+        "0 0 29 2 *",
+        "7/3 8-18/2 * jan,dec 0,6",
+        "@daily",
+        "@weekly",
+    ]
+
+    ALLOWED_FIELDS = {
+        "minute",
+        "hour",
+        "day_of_month",
+        "month",
+        "day_of_week",
+        None,  # 字段数错与短写非法
+    }
+
+    MUTATIONS_PER_EXPRESSION = 50
+    CHARSET = (
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        "*/,-@ \t"
+    )
+
+    @staticmethod
+    def _mutate(expr, rng, charset):
+        operation = rng.choice(("insert", "delete", "replace"))
+        if not expr or operation == "insert":
+            index = rng.randint(0, len(expr))
+            return expr[:index] + rng.choice(charset) + expr[index:]
+        index = rng.randrange(len(expr))
+        if operation == "delete":
+            return expr[:index] + expr[index + 1 :]
+        return expr[:index] + rng.choice(charset) + expr[index + 1 :]
+
+    def test_random_mutations_keep_contract(self):
+        rng = random.Random(20260924)
+        for expr in self.VALID_EXPRESSIONS:
+            for _ in range(self.MUTATIONS_PER_EXPRESSION):
+                mutated = self._mutate(expr, rng, self.CHARSET)
+                try:
+                    parse(mutated)
+                except ScheduleSyntaxError as error:
+                    self.assertIn(error.field, self.ALLOWED_FIELDS, mutated)
+                    located = mutated[
+                        error.position : error.position + len(error.value)
+                    ]
+                    self.assertEqual(located, error.value, mutated)
+                except Exception as error:  # noqa: BLE001 - 需要精确报错信息
+                    self.fail(
+                        "变异表达式 %r 抛出了非 ScheduleSyntaxError：%r"
+                        % (mutated, error)
+                    )
 
 
 class MatchesTests(unittest.TestCase):
