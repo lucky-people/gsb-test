@@ -156,6 +156,88 @@ class TestEscape(unittest.TestCase):
         self.assertTrue(p.matches("!important"))
 
 
+class TestEscapeInMatcher(unittest.TestCase):
+    """含转义的规则放进 Matcher 后必须与 Pattern.matches 结论一致。
+
+    回归背景：转义规则曾被当作纯字面量分桶，但桶键用的是未反转义的
+    原始文本，导致 Matcher 字典查找静默落空（不报错地漏配）。
+    """
+
+    def assert_consistent(self, pattern, path, is_dir=False):
+        """同一规则、同一路径，三个入口必须给出互相一致的结论。"""
+        expected = compile_pattern(pattern).matches(path, is_dir=is_dir)
+        matcher = Matcher([pattern])
+        matched = matcher.match(path, is_dir=is_dir)
+        self.assertEqual(
+            matched is not None, expected,
+            f"match 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+        self.assertEqual(
+            matcher.ignores(path, is_dir=is_dir), expected,
+            f"ignores 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+
+    def test_escaped_star_question_space_brackets(self):
+        # 缺陷报告的四条复现
+        for pattern, path in [
+            (r"a\*b", "a*b"),
+            (r"a\ b", "a b"),
+            (r"a\?b", "a?b"),
+            (r"a\[b\]c", "a[b]c"),
+        ]:
+            with self.subTest(pattern=pattern, path=path):
+                self.assert_consistent(pattern, path)
+                self.assertTrue(Matcher([pattern]).ignores(path))
+                self.assertIsNotNone(Matcher([pattern]).match(path))
+
+    def test_escape_at_start_middle_and_end(self):
+        for pattern, path in [
+            (r"\*x", "*x"),      # 开头
+            (r"x\*y", "x*y"),    # 中间
+            (r"x\*", "x*"),      # 结尾
+            (r"\?q", "?q"),
+            (r"q\?", "q?"),
+        ]:
+            with self.subTest(pattern=pattern, path=path):
+                self.assert_consistent(pattern, path)
+                self.assertTrue(Matcher([pattern]).ignores(path))
+
+    def test_escaped_bang_and_hash_prefix_unchanged(self):
+        # `\!` / `\#` 前缀的既有特例：按字面处理、不触发取反
+        for pattern, path in [(r"\!important", "!important"),
+                              (r"\#hash", "#hash")]:
+            with self.subTest(pattern=pattern):
+                pat = compile_pattern(pattern)
+                self.assertFalse(pat.negated)
+                self.assert_consistent(pattern, path)
+                self.assertTrue(Matcher([pattern]).ignores(path))
+
+    def test_escape_in_directory_rule(self):
+        # 目录规则（结尾 `/`）里的转义
+        matcher = Matcher([r"a\ b/"])
+        self.assertTrue(matcher.ignores("a b/x"))
+        self.assertTrue(matcher.ignores("a b", is_dir=True))
+        self.assertFalse(matcher.ignores("a b", is_dir=False))
+        self.assert_consistent(r"a\ b/", "a b/x")
+        self.assert_consistent(r"a\ b/", "a b", is_dir=True)
+
+    def test_escape_in_anchored_rule(self):
+        # 锚定规则（前导 `/` 或中间含 `/`）里的转义
+        matcher = Matcher([r"/a\*b"])
+        self.assertTrue(matcher.ignores("a*b"))
+        self.assertFalse(matcher.ignores("x/a*b"))
+        self.assert_consistent(r"/a\*b", "a*b")
+        self.assert_consistent(r"/a\*b", "x/a*b")
+        self.assert_consistent(r"dir/a\?b/", "dir/a?b/f")
+
+    def test_escaped_rule_does_not_match_unescaped_path(self):
+        # 转义后的字面量不应误中未转义的文本
+        matcher = Matcher([r"a\*b"])
+        self.assertFalse(matcher.ignores("axb"))
+        self.assertFalse(matcher.ignores("a\\*b"))
+        self.assert_consistent(r"a\*b", "axb")
+
+
 class TestNegationAndOrder(unittest.TestCase):
     def test_negation_reincludes(self):
         m = Matcher(["*.txt", "!keep.txt"])

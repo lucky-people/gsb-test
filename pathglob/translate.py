@@ -49,9 +49,13 @@ def _translate_class(content):
 
 
 def _translate_segment(seg, original, base):
-    """翻译单个路径段（不含 `/`），返回 (正则片段, 是否纯字面量)。"""
+    """翻译单个路径段（不含 `/`）。
+
+    返回 (正则片段, 字面文本)。字面文本是反转义后的真实文本；
+    段内含任何通配结构（`*`、`?`、字符类）时为 None。
+    """
     out = []
-    literal = True
+    lit = []
     i = 0
     n = len(seg)
     while i < n:
@@ -61,10 +65,10 @@ def _translate_segment(seg, original, base):
             while i < n and seg[i] == "*":
                 i += 1
             out.append("[^/]*")
-            literal = False
+            lit = None
         elif c == "?":
             out.append("[^/]")
-            literal = False
+            lit = None
             i += 1
         elif c == "[":
             j = i + 1
@@ -83,7 +87,7 @@ def _translate_segment(seg, original, base):
             if k >= n:
                 raise PatternError(original, base + i, '字符类 "[" 未闭合')
             out.append(_translate_class(seg[i + 1:k]))
-            literal = False
+            lit = None
             i = k + 1
         elif c == "\\":
             if i + 1 >= n:
@@ -91,11 +95,16 @@ def _translate_segment(seg, original, base):
                     original, base + i, "反斜杠位于模式末尾，没有可转义的字符"
                 )
             out.append(re.escape(seg[i + 1]))
+            if lit is not None:
+                # 转义序列贡献的是被转义的那个字符本身
+                lit.append(seg[i + 1])
             i += 2
         else:
             out.append(re.escape(c))
+            if lit is not None:
+                lit.append(c)
             i += 1
-    return "".join(out), literal
+    return "".join(out), (None if lit is None else "".join(lit))
 
 
 def translate(body, anchored, directory_only, original, offset):
@@ -108,7 +117,8 @@ def translate(body, anchored, directory_only, original, offset):
         original / offset: 原始模式与主体在其中的偏移，用于报错定位。
 
     返回：
-        (正则源码, 是否纯字面量)。纯字面量可供 Matcher 做字典分桶。
+        (正则源码, 字面文本)。模式不含任何通配结构时，字面文本是
+        反转义后的完整主体文本（供 Matcher 做字典分桶）；否则为 None。
     """
     raw_segments = body.split("/")
     segments = []
@@ -128,12 +138,12 @@ def translate(body, anchored, directory_only, original, offset):
         raise PatternError(original, offset, "模式主体为空")
 
     parts = []
-    literal = True
+    lit_parts = []
     need_slash = False
     count = len(segments)
     for idx, (seg, segpos) in enumerate(segments):
         if seg == "**":
-            literal = False
+            lit_parts = None
             if count == 1:
                 parts.append(".*")
             elif idx == count - 1:
@@ -145,8 +155,10 @@ def translate(body, anchored, directory_only, original, offset):
                 need_slash = False
             continue
         seg_re, seg_lit = _translate_segment(seg, original, offset + segpos)
-        if not seg_lit:
-            literal = False
+        if seg_lit is None:
+            lit_parts = None
+        elif lit_parts is not None:
+            lit_parts.append(seg_lit)
         if need_slash:
             parts.append("/")
         parts.append(seg_re)
@@ -159,4 +171,5 @@ def translate(body, anchored, directory_only, original, offset):
         regex = "^" + prefix + body_re + "(?:/(?P<inside>.*))?$"
     else:
         regex = "^" + prefix + body_re + "$"
+    literal = None if lit_parts is None else "/".join(lit_parts)
     return regex, literal

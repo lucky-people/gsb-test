@@ -104,8 +104,9 @@ class Pattern:
             folded, anchored, directory_only, original, max(offset, 0)
         )
         self._regex = re.compile(regex_src)
-        # 纯字面量模式记录其（可能已 casefold 的）文本，供 Matcher 分桶
-        self._literal = folded if literal else None
+        # 纯字面量模式记录翻译时反转义后的文本（已 casefold），
+        # 供 Matcher 分桶；含通配结构时为 None
+        self._literal = literal
 
     def matches(self, path, is_dir=False):
         """判断相对路径是否命中本规则。path 会先经过 normalize_path。"""
