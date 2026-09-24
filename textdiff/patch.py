@@ -31,9 +31,9 @@ def _render_body_line(prefix: str, line: Line) -> list[str]:
 def _stream_edit(edit: Edit, a: list[Line], b: list[Line]) -> list[_Op]:
     """按文档顺序输出单个编辑块的带前缀行，并记录绝对行下标。
 
-    replace 块内部可能夹着相等行，这些行必须以上下文（空格前缀）
-    的形式穿插输出，不能把整块旧行先删完再插入整块新行；
-    在真正发生替换的位置仍保证删除行排在插入行之前。
+    replace 块（一段连续的「先删后插」改动）统一先输出全部删除行、
+    再输出全部插入行，与 GNU diff / difflib 的渲染形态保持一致；
+    不同编辑块之间仍按文档顺序排列。
     """
     if edit.tag == "equal":
         return [(" ", a[idx], idx, edit.b_start + (idx - edit.a_start))
@@ -45,22 +45,10 @@ def _stream_edit(edit: Edit, a: list[Line], b: list[Line]) -> list[_Op]:
         return [("+", b[idx], None, idx)
                 for idx in range(edit.b_start, edit.b_end)]
 
-    old = a[edit.a_start:edit.a_end]
-    new = b[edit.b_start:edit.b_end]
-    common = min(len(old), len(new))
-    ops: list[_Op] = []
-    for offset in range(common):
-        old_idx = edit.a_start + offset
-        new_idx = edit.b_start + offset
-        if old[offset] == new[offset]:
-            ops.append((" ", old[offset], old_idx, new_idx))
-        else:
-            ops.append(("-", old[offset], old_idx, None))
-            ops.append(("+", new[offset], None, new_idx))
-    for offset in range(common, len(old)):
-        ops.append(("-", old[offset], edit.a_start + offset, None))
-    for offset in range(common, len(new)):
-        ops.append(("+", new[offset], None, edit.b_start + offset))
+    ops: list[_Op] = [("-", a[idx], idx, None)
+                      for idx in range(edit.a_start, edit.a_end)]
+    ops.extend(("+", b[idx], None, idx)
+               for idx in range(edit.b_start, edit.b_end))
     return ops
 
 

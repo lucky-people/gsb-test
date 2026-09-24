@@ -113,8 +113,10 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
   纯插入 hunk 旧侧为 `0,0`，纯删除 hunk 新侧为 `0,0`；
 - 每个 hunk 两端最多带 `context` 行上下文；两个改动之间放不下
   `2*context+1` 行公共上下文时合并为同一 hunk；
-- replace 块内部夹着的相等行以上下文（空格前缀）按文档顺序穿插输出，
-  真正替换处仍是先 `-` 后 `+`；
+- 同一改动块（replace）内**先输出全部 `-` 删除行、再输出全部 `+`
+  插入行**，与 GNU diff / difflib 的形态一致；不同改动块之间保持
+  文档顺序；在唯一行文本上与
+  `difflib.unified_diff(fromfile="a", tofile="b")` 逐字节一致；
 - 两份输入完全相同时返回**空字符串**；
 - 末尾**没有换行**的行在 `-`/`+`/空格行之后输出
   `\ No newline at end of file` 标注。
@@ -203,7 +205,7 @@ textdiff/
   patch.py      unified diff 生成与补丁解析/精确套用
   merge.py      三方合并与冲突结构
   errors.py     PatchError 自定义异常
-test_textdiff.py 标准库 unittest 测试（33 个用例）
+test_textdiff.py 标准库 unittest 测试（42 个用例）
 bench.py        10 万行近似文本的耗时 / 峰值内存基准
 ```
 

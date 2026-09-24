@@ -1,5 +1,6 @@
 """textdiff 的标准库 unittest 测试。"""
 
+import difflib
 import random
 import unittest
 
@@ -120,6 +121,113 @@ class UnifiedHeaderTests(unittest.TestCase):
         b = a.replace("l0\n", "X\n", 1).replace("l19\n", "Y\n", 1)
         patch = textdiff.unified(a, b, context=1)
         self.assertEqual(patch.count("@@ -"), 2)
+
+
+class UnifiedOrderingTests(unittest.TestCase):
+    """改动块内「先删后插」的渲染顺序约定（交错回归）。"""
+
+    def test_replace_block_renders_all_deletes_before_inserts(self):
+        # 回归：同一替换块曾把 - / + 交错输出（-u3 +mod4 -u4）。
+        a = "u0\nu1\nu2\nu3-755\nu4-568\nu5\n"
+        b = "u0\nu1\nu2\nmod4-360\nu5\n"
+        patch = textdiff.unified(a, b, 0)
+        self.assertEqual(
+            patch,
+            "--- a\n+++ b\n"
+            "@@ -4,2 +4 @@\n"
+            "-u3-755\n"
+            "-u4-568\n"
+            "+mod4-360\n")
+
+    def test_change_blocks_keep_document_order(self):
+        # 不同改动块之间仍按文档顺序排列，各自内部先删后插。
+        a = "a1\na2\nkeep\nb1\nb2\n"
+        b = "A\nkeep\nB\n"
+        patch = textdiff.unified(a, b, 0)
+        self.assertEqual(
+            patch,
+            "--- a\n+++ b\n"
+            "@@ -1,2 +1 @@\n"
+            "-a1\n"
+            "-a2\n"
+            "+A\n"
+            "@@ -4,2 +3 @@\n"
+            "-b1\n"
+            "-b2\n"
+            "+B\n")
+
+    def test_byte_identical_with_difflib_on_unique_lines(self):
+        # 唯一行文本上逐字节对齐 difflib.unified_diff，随机 1000 组。
+        rng = random.Random(20260924)
+        stamp = [0]
+
+        def fresh(tag):
+            stamp[0] += 1
+            return f"{tag}{stamp[0]}"
+
+        for _ in range(1000):
+            a_lines = [fresh("u") for _ in range(rng.randint(0, 12))]
+            b_lines = list(a_lines)
+            for _ in range(rng.randint(1, 4)):
+                op = rng.choice(("replace", "insert", "delete"))
+                if op == "replace" and b_lines:
+                    b_lines[rng.randrange(len(b_lines))] = fresh("mod")
+                elif op == "insert":
+                    b_lines.insert(rng.randrange(len(b_lines) + 1),
+                                   fresh("ins"))
+                elif op == "delete" and b_lines:
+                    del b_lines[rng.randrange(len(b_lines))]
+            a = "".join(x + "\n" for x in a_lines)
+            b = "".join(x + "\n" for x in b_lines)
+            for context in (0, 1, 3, 5):
+                expected = "".join(difflib.unified_diff(
+                    a.splitlines(keepends=True),
+                    b.splitlines(keepends=True),
+                    fromfile="a", tofile="b", n=context))
+                patch = textdiff.unified(a, b, context)
+                self.assertEqual(patch, expected,
+                                 msg=(a, b, context))
+                self.assertEqual(textdiff.apply(a, patch), b)
+
+    def test_empty_file_cases(self):
+        self.assertEqual(textdiff.unified("", ""), "")
+        patch = textdiff.unified("", "only\n")
+        self.assertEqual(patch,
+                         "--- a\n+++ b\n@@ -0,0 +1 @@\n+only\n")
+        self.assertEqual(textdiff.apply("", patch), "only\n")
+
+    def test_pure_insert_and_pure_delete(self):
+        patch = textdiff.unified("a\nc\n", "a\nx\ny\nc\n", 0)
+        self.assertEqual(patch,
+                         "--- a\n+++ b\n@@ -1,0 +2,2 @@\n+x\n+y\n")
+        patch = textdiff.unified("a\nx\ny\nc\n", "a\nc\n", 0)
+        self.assertEqual(patch,
+                         "--- a\n+++ b\n@@ -2,2 +1,0 @@\n-x\n-y\n")
+
+    def test_no_trailing_newline_keeps_marker_and_order(self):
+        patch = textdiff.unified("a\nb1\nb2", "a\nB", 0)
+        self.assertEqual(
+            patch,
+            "--- a\n+++ b\n"
+            "@@ -2,2 +2 @@\n"
+            "-b1\n"
+            "-b2\n"
+            "\\ No newline at end of file\n"
+            "+B\n"
+            "\\ No newline at end of file\n")
+        self.assertEqual(textdiff.apply("a\nb1\nb2", patch), "a\nB")
+
+    def test_crlf_lines_render_delete_before_insert(self):
+        patch = textdiff.unified("a\r\nb1\r\nb2\r\n", "a\r\nB\r\n", 0)
+        self.assertEqual(
+            patch,
+            "--- a\n+++ b\n"
+            "@@ -2,2 +2 @@\n"
+            "-b1\r\n"
+            "-b2\r\n"
+            "+B\r\n")
+        self.assertEqual(
+            textdiff.apply("a\r\nb1\r\nb2\r\n", patch), "a\r\nB\r\n")
 
 
 class ApplyTests(unittest.TestCase):
