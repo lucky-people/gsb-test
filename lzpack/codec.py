@@ -247,7 +247,7 @@ class Decompressor:
                 r = read_varint(buf, p2)
                 if r is None:
                     break  # 偏移字段没收全
-                off = r[0]
+                off = r[0] + 1  # 字段存的是「偏移 - 1」，见文件头格式说明
                 if off > window:
                     raise FormatError(
                         self._base + pos,

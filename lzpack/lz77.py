@@ -57,7 +57,7 @@ def find_tokens(data, level, window):
             j = head[h]
             prev[i & wmask] = j
             head[h] = i
-            limit = i - MAX_MATCH  # 只允许偏移 <= window，即 j >= i - window
+            limit = i - window  # 只允许偏移 <= window，即 j >= i - window
             depth = depth_max
             maxl = min(MAX_MATCH, n - i)
             while j >= 0 and j >= limit and depth > 0:
