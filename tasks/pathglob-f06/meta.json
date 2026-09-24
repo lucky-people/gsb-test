@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "pathglob-f06",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "地狱",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/pathglob-f06/base",
+    "initial_sha":  "cace59dee7a8cf4c1a22d21b94e1f3b8ae2aa598",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/cace59dee7a8cf4c1a22d21b94e1f3b8ae2aa598",
+    "created_at":  "2026-09-24T17:58:39.8896573+08:00"
+}

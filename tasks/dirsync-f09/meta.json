@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "dirsync-f09",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "地狱",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/dirsync-f09/base",
+    "initial_sha":  "3e4cd92321bf772863bd376de4e28e30a971b0a2",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/3e4cd92321bf772863bd376de4e28e30a971b0a2",
+    "created_at":  "2026-09-24T17:57:55.4657594+08:00"
+}

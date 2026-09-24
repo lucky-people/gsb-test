@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "cronspec-f05",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/cronspec-f05/base",
+    "initial_sha":  "01e9735b20e9d3bff2e0a4a6feb7a9daf4ca4d03",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/01e9735b20e9d3bff2e0a4a6feb7a9daf4ca4d03",
+    "created_at":  "2026-09-24T17:59:03.1638705+08:00"
+}

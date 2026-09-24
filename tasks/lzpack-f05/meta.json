@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "lzpack-f05",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "地狱",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/lzpack-f05/base",
+    "initial_sha":  "eea5262557478df96b87d87ca91115c3fb4709ae",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/eea5262557478df96b87d87ca91115c3fb4709ae",
+    "created_at":  "2026-09-24T17:57:16.9480331+08:00"
+}

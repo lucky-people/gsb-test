@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "pathglob-anchor",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/pathglob-anchor/base",
+    "initial_sha":  "d5dcac32a941c7c7459de6d4a534b880c0b3863a",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/d5dcac32a941c7c7459de6d4a534b880c0b3863a",
+    "created_at":  "2026-09-24T17:33:15.3186700+08:00"
+}

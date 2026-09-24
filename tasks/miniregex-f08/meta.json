@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "miniregex-f08",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "地狱",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/miniregex-f08/base",
+    "initial_sha":  "d9ef88cfd2acfafc30a4800102af1eda6a1ab826",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/d9ef88cfd2acfafc30a4800102af1eda6a1ab826",
+    "created_at":  "2026-09-24T17:58:18.9028838+08:00"
+}

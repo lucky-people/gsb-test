@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "textdiff-f03",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/textdiff-f03/base",
+    "initial_sha":  "ba37b09e6f48deb51eda2e514bdcb32b4438c83a",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/ba37b09e6f48deb51eda2e514bdcb32b4438c83a",
+    "created_at":  "2026-09-24T17:59:22.6865978+08:00"
+}

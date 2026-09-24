@@ -1,0 +1,16 @@
+﻿{
+    "task_id":  "lzpack-stream",
+    "prompt_file":  "prompt.md",
+    "task_type":  "Bug修复",
+    "difficulty":  "困难",
+    "language_framework":  "Python",
+    "harness":  "codex cli",
+    "harness_version":  "0.155.0",
+    "os":  "Windows 11",
+    "reproducible":  "无外部依赖",
+    "repo_url":  "https://github.com/lucky-people/gsb-test",
+    "base_branch":  "task/lzpack-stream/base",
+    "initial_sha":  "65f2bb68da92c6ce512d480fbd44c59f4ba5f32e",
+    "initial_permalink":  "https://github.com/lucky-people/gsb-test/commit/65f2bb68da92c6ce512d480fbd44c59f4ba5f32e",
+    "created_at":  "2026-09-24T17:33:01.9581819+08:00"
+}
