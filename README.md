@@ -122,20 +122,36 @@ Myers 把编辑过程看成在编辑网格上从 `(0,0)` 走到 `(N,M)`：向右
 基准脚本 `bench.py`：两份 10 万行文本（`line-000000`…`line-099999`），其中一侧
 有约 40 处修改/插入/删除。
 
-实测环境：Windows 11（10.0.26200）、AMD Ryzen 7 7735H、16 GiB 内存、
-CPython 3.12.3。耗时为 `time.perf_counter`，峰值内存为 `tracemalloc` 统计的
-Python 层分配峰值（含输入文本与结果）：
+实测环境：AMD Ryzen 7 7735H（16 逻辑核）、CPython 3.14.4、
+Linux（WSL2，内核 6.18）。每项预热 1 次后默认重复 5 次，耗时取中位数，
+并给出最小–最大区间；峰值内存为 `tracemalloc` 统计的 Python 层分配峰值
+（含输入文本与结果）：
 
-| 阶段 | 耗时（两次运行区间） | 峰值内存 |
-| --- | --- | --- |
-| diff | 1.5–1.6 s | 约 33 MiB |
-| unified（含一次 diff） | 1.9–2.4 s | 约 33 MiB |
-| apply | 0.8–1.1 s | 约 19 MiB |
-| merge（两侧各 32 处不相邻改动，两次 diff） | 3.7–4.5 s | 约 44 MiB |
+| 阶段 | 中位耗时 | 最小–最大 | 峰值内存 |
+| --- | --- | --- | --- |
+| diff | 0.13 s | 0.10–0.15 s | 约 35 MiB |
+| unified（含一次 diff） | 0.10 s | 0.09–0.12 s | 约 35 MiB |
+| apply | 0.05 s | 0.04–0.05 s | 约 20 MiB |
+| merge（两侧各 32 处不相邻改动，两次 diff） | 0.17 s | 0.17–0.19 s | 约 46 MiB |
+
+测量口径（重要）：**计时轮与内存轮严格分开**。计时轮断言
+`tracemalloc.is_tracing()` 为 `False`，真开着就直接报错退出，每项先预热 1 次
+再重复 N 次；峰值内存由**单独一轮**开启 `tracemalloc` 统计。
+**开启内存追踪会让同段代码慢数倍**——旧版 `bench.py` 先 `tracemalloc.start()`
+再开始计时，把追踪开销算进了耗时，曾得出 diff 1.5 s / merge 3.7–4.5 s 量级的
+数字，与新口径（diff 约 0.13 s / merge 约 0.17 s）相差一个数量级。
+因此两份实现的性能数字**必须按同一口径比较**（耗时与内存是否分开测、
+预热与重复次数、硬件环境），跨口径对比会得出数倍的假象差距。
 
 近似文本不会退化为 O(N·M)：公共前后缀归并后只对 D 量级的中间片段建网格，
 10 万行只差几十处时网格规模与几十处差异相关，而不是 10 万的平方。
-可用 `python bench.py` 在本机复现。
+可用 `python bench.py` 在本机复现：`--repeat N` 调整重复次数（计时轮总步数
+随 N 线性增长，每次都真实调用，不复用上一轮结果），
+`--out bench-result.json` 落盘结构化结果（含环境、口径、每次样本），
+`--baseline bench-result.json` 与基线逐项对比（任一项中位耗时慢 20% 以上
+即以非零退出码结束并指出是哪一项），
+`python render_bench.py bench-result.json` 把结果渲染成 Markdown 表格。
+脚本只用标准库，Windows 与 Linux 下均可直接运行。
 
 ## 目录结构
 
@@ -147,12 +163,16 @@ textdiff/
   merge.py      三方合并与冲突块
   errors.py     PatchError 等自定义异常
 test_textdiff.py 标准库 unittest 测试
-bench.py        10 万行性能基准
+bench.py        10 万行性能基准（计时/内存分离，可重复统计与基线对比）
+render_bench.py 把 bench.py 的 JSON 结果渲染成 Markdown 表格
 ```
 
 ## 运行测试与基准
 
 ```bash
-python -m unittest test_textdiff -v
-python bench.py
+python -m unittest test_textdiff -v   # 42 个用例
+python bench.py                        # 默认每项预热 1 次、计时 5 次
+python bench.py --repeat 9 --out bench-result.json
+python bench.py --baseline bench-result.json   # 回归检测（慢 20% 以上退出码为 1）
+python render_bench.py bench-result.json       # 渲染 Markdown 表格
 ```
