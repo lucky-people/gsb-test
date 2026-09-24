@@ -319,5 +319,39 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """历史 bug 的回归测试。"""
+
+    def test_match_offset_field_is_offset_minus_one(self):
+        # 回归：解码端曾把偏移字段直接当作偏移使用（忘了 +1），
+        # 导致所有匹配回引错一位、CRC 校验失败。
+        # 手工构造一条流：字面量 'a' + 匹配(偏移=1, 长度=3)，
+        # 偏移字段必须按约定存 偏移-1 = 0。
+        data = b"aaaa"
+        blob = bytearray(codec.build_header(len(data), codec.crc32(data), 1, 1024))
+        blob += b"\x00a"          # 字面量块：长度 1，内容 'a'
+        blob += b"\x80"           # 匹配标签：长度 = 3
+        blob += encode_varint(0)  # 偏移字段 = 偏移 1 - 1 = 0
+        self.assertEqual(lzpack.decompress(bytes(blob)), data)
+        # 压缩端写出的偏移字段也必须遵守同一约定
+        self.assertEqual(lzpack.compress(data, level=1, window=1024)[12:],
+                         b"\x00a\x80\x00")
+
+    def test_match_search_bounded_by_declared_window(self):
+        # 回归：find_tokens 曾用 MAX_MATCH 而非 window 作为搜索下界，
+        # 导致偏移超出头部声明的窗口（如 2200 > 1024）。
+        rng = random.Random(31337)
+        block = bytes(rng.choices(range(256), k=200))
+        filler = bytes(rng.choices(range(256), k=2000))
+        data = block + filler + block  # 重复距离 2200
+        for window in (1024, 4096, 32768):
+            for token in find_tokens(data, 9, window):
+                if token[0] == "m":
+                    self.assertLessEqual(token[1], window)
+        # window=1024 时第二个 block 越窗，只能退化为字面量
+        tokens = list(find_tokens(data, 9, 1024))
+        self.assertTrue(all(t[0] == "l" for t in tokens))
+
+
 if __name__ == "__main__":
     unittest.main()
