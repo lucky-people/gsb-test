@@ -156,6 +156,104 @@ class TestEscape(unittest.TestCase):
         self.assertTrue(p.matches("!important"))
 
 
+class TestMatcherEscapeConsistency(unittest.TestCase):
+    """含转义的规则在 Pattern 与 Matcher 两个入口下结论必须一致。
+
+    回归背景：转义规则曾被当作纯字面量分桶，但桶键误用未去转义的
+    原始文本，导致 Matcher 查字典永远落空、静默漏配。
+    """
+
+    def test_repro_four_escaped_rules(self):
+        # 缺陷报告中的四条复现：ignores 为 True 且 match 非 None
+        cases = [
+            (r"a\*b", "a*b"),
+            (r"a\ b", "a b"),
+            (r"a\?b", "a?b"),
+            (r"a\[b\]c", "a[b]c"),
+        ]
+        for pat, path in cases:
+            with self.subTest(pat=pat, path=path):
+                m = Matcher([pat])
+                self.assertTrue(m.ignores(path))
+                self.assertIsNotNone(m.match(path))
+
+    def test_entry_points_agree_invariant(self):
+        # 不变量：同一规则同一路径，三个入口的结论必须互相一致
+        cases = [
+            (r"a\*b", "a*b", False),
+            (r"a\*b", "aXb", False),
+            (r"a\ b", "a b", False),
+            (r"a\?b", "a?b", False),
+            (r"a\?b", "axb", False),
+            (r"a\[b\]c", "a[b]c", False),
+            (r"a\[b\]c", "abc", False),
+            (r"\*lead", "*lead", False),
+            (r"trail\*", "trail*", False),
+            (r"\!important", "!important", False),
+            (r"\#hash", "#hash", False),
+            (r"my\ dir/", "my dir/x", False),
+            (r"my\ dir/", "my dir", True),
+            (r"my\ dir/", "my dir", False),
+            (r"/a\*b", "a*b", False),
+            (r"/a\*b", "x/a*b", False),
+            (r"/a\ b/", "a b/c", False),
+            (r"/a\ b/", "x/a b/c", False),
+            ("*.log", "x.log", False),
+            ("build/", "build/out.o", False),
+            ("**/node_modules/**", "a/node_modules/b", False),
+        ]
+        for pat, path, is_dir in cases:
+            with self.subTest(pat=pat, path=path, is_dir=is_dir):
+                expected = compile_pattern(pat).matches(path, is_dir=is_dir)
+                m = Matcher([pat])
+                self.assertEqual(m.ignores(path, is_dir=is_dir), expected)
+                self.assertEqual(m.match(path, is_dir=is_dir) is not None, expected)
+
+    def test_escape_at_start_middle_end(self):
+        for pat, path in [(r"\*abc", "*abc"), (r"a\*b", "a*b"), (r"abc\*", "abc*")]:
+            with self.subTest(pat=pat):
+                self.assertTrue(Matcher([pat]).ignores(path))
+
+    def test_escaped_bang_and_hash_prefixes(self):
+        # \! 与 \# 前缀的既有特例行为不得回退：按字面、不算取反
+        m = Matcher([r"\!important", r"\#hash"])
+        self.assertTrue(m.ignores("!important"))
+        self.assertTrue(m.ignores("#hash"))
+        self.assertFalse(m.match("!important").negated)
+        self.assertFalse(m.match("#hash").negated)
+        self.assertFalse(m.ignores("important"))
+
+    def test_escape_in_directory_rule(self):
+        m = Matcher([r"my\ dir/"])
+        self.assertTrue(m.ignores("my dir/out.o"))
+        self.assertTrue(m.ignores("my dir", is_dir=True))
+        self.assertFalse(m.ignores("my dir", is_dir=False))
+        self.assertFalse(m.ignores("mydir/out.o"))
+
+    def test_escape_in_anchored_rule(self):
+        m = Matcher([r"/a\*b"])
+        self.assertTrue(m.ignores("a*b"))
+        self.assertFalse(m.ignores("x/a*b"))
+        m_dir = Matcher([r"/a\ b/"])
+        self.assertTrue(m_dir.ignores("a b/c"))
+        self.assertFalse(m_dir.ignores("x/a b/c"))
+
+    def test_escaped_literal_case_insensitive_bucket(self):
+        # 默认大小写不敏感：去转义后的桶键同样按 casefold 归一
+        m = Matcher([r"A\*B"])
+        self.assertTrue(m.ignores("a*b"))
+        m_cs = Matcher([compile_pattern(r"A\*B", case_sensitive=True)])
+        self.assertFalse(m_cs.ignores("a*b"))
+        self.assertTrue(m_cs.ignores("A*B"))
+
+    def test_escaped_literal_last_match_wins(self):
+        # 转义字面量规则与通配符规则混排时仍按“最后命中”求值
+        m = Matcher([r"a\*b", "!a*b"])
+        self.assertFalse(m.ignores("a*b"))
+        m2 = Matcher(["!a*b", r"a\*b"])
+        self.assertTrue(m2.ignores("a*b"))
+
+
 class TestNegationAndOrder(unittest.TestCase):
     def test_negation_reincludes(self):
         m = Matcher(["*.txt", "!keep.txt"])

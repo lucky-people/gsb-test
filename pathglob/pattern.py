@@ -100,12 +100,14 @@ class Pattern:
         # 大小写不敏感时，先把模式 casefold，匹配时再 casefold 路径
         folded = body if self.case_sensitive else body.casefold()
         offset = original.find(body)
-        regex_src, literal = translate(
+        regex_src, literal_text = translate(
             folded, anchored, directory_only, original, max(offset, 0)
         )
         self._regex = re.compile(regex_src)
-        # 纯字面量模式记录其（可能已 casefold 的）文本，供 Matcher 分桶
-        self._literal = folded if literal else None
+        # 纯字面量模式记录去转义后的（可能已 casefold 的）文本，供 Matcher 分桶；
+        # 注意不能直接用 folded：含转义的规则（如 a\*b）分桶键必须是
+        # 真实字符 a*b，否则 Matcher 查字典永远落空，与正则结果不一致
+        self._literal = literal_text
 
     def matches(self, path, is_dir=False):
         """判断相对路径是否命中本规则。path 会先经过 normalize_path。"""

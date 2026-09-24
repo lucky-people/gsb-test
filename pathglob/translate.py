@@ -49,8 +49,13 @@ def _translate_class(content):
 
 
 def _translate_segment(seg, original, base):
-    """翻译单个路径段（不含 `/`），返回 (正则片段, 是否纯字面量)。"""
+    """翻译单个路径段（不含 `/`）。
+
+    返回 (正则片段, 字面文本)。字面文本为 None 表示该段含通配符；
+    否则为去掉转义后的真实字符序列（供 Matcher 分桶做字典键）。
+    """
     out = []
+    lit_chars = []
     literal = True
     i = 0
     n = len(seg)
@@ -91,11 +96,13 @@ def _translate_segment(seg, original, base):
                     original, base + i, "反斜杠位于模式末尾，没有可转义的字符"
                 )
             out.append(re.escape(seg[i + 1]))
+            lit_chars.append(seg[i + 1])
             i += 2
         else:
             out.append(re.escape(c))
+            lit_chars.append(c)
             i += 1
-    return "".join(out), literal
+    return "".join(out), ("".join(lit_chars) if literal else None)
 
 
 def translate(body, anchored, directory_only, original, offset):
@@ -108,7 +115,9 @@ def translate(body, anchored, directory_only, original, offset):
         original / offset: 原始模式与主体在其中的偏移，用于报错定位。
 
     返回：
-        (正则源码, 是否纯字面量)。纯字面量可供 Matcher 做字典分桶。
+        (正则源码, 字面文本)。字面文本为 None 表示含通配符；否则为
+        去掉转义后的完整字面路径（已按调用方传入的大小写形式归一），
+        可供 Matcher 做字典分桶。
     """
     raw_segments = body.split("/")
     segments = []
@@ -128,6 +137,7 @@ def translate(body, anchored, directory_only, original, offset):
         raise PatternError(original, offset, "模式主体为空")
 
     parts = []
+    lit_segments = []
     literal = True
     need_slash = False
     count = len(segments)
@@ -145,8 +155,10 @@ def translate(body, anchored, directory_only, original, offset):
                 need_slash = False
             continue
         seg_re, seg_lit = _translate_segment(seg, original, offset + segpos)
-        if not seg_lit:
+        if seg_lit is None:
             literal = False
+        else:
+            lit_segments.append(seg_lit)
         if need_slash:
             parts.append("/")
         parts.append(seg_re)
@@ -159,4 +171,4 @@ def translate(body, anchored, directory_only, original, offset):
         regex = "^" + prefix + body_re + "(?:/(?P<inside>.*))?$"
     else:
         regex = "^" + prefix + body_re + "$"
-    return regex, literal
+    return regex, ("/".join(lit_segments) if literal else None)
