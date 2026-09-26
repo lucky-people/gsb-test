@@ -17,7 +17,9 @@ SEARCH_LIMIT_YEARS = 400
 
 
 def is_leap(year):
-    return year % 4 == 0
+    # 公历闰年：能被 4 整除且不能被 100 整除，或能被 400 整除。
+    # 仅按 year % 4 判断会把 1900、2100 等整百年误判为闰年。
+    return year % 400 == 0 or (year % 4 == 0 and year % 100 != 0)
 
 
 def days_in_month(year, month):
@@ -84,7 +86,7 @@ def _candidate_day(schedule, year, month, min_day):
         if dom_day is not None and dom_day <= limit_day:
             candidates.append(dom_day)
 
-    if dow_restricted and not dom_restricted:
+    if dow_restricted:
         # 周一在周五之前时，必须逐个星期值试探；集合最多 7 个值，开销恒定。
         for wanted in schedule.day_of_week.values:
             dow_day = first_weekday_on_or_after(
@@ -92,6 +94,9 @@ def _candidate_day(schedule, year, month, min_day):
             )
             if dow_day is not None:
                 candidates.append(dow_day)
+
+    # DOM 与 DOW 都被限定时，上面两路候选各取其最早者再取较小值，
+    # 即 POSIX/vixie cron 的并集语义（满足任一即触发）。
 
     if not dom_restricted and not dow_restricted:
         return min_day

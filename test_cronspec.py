@@ -405,6 +405,84 @@ class NextNTests(unittest.TestCase):
                 schedule.next_n(dt(2024, 1, 1), bad)
 
 
+class RegressionTests(unittest.TestCase):
+    """覆盖三组历史根因：闰年规则、名字大小写、DOM/DOW 并集搜索。"""
+
+    def test_gregorian_leap_year_rule(self):
+        from cronspec.engine import days_in_month, is_leap
+
+        for leap_year in (2000, 2024):
+            self.assertTrue(is_leap(leap_year), leap_year)
+            self.assertEqual(days_in_month(leap_year, 2), 29)
+        for common_year in (1900, 2100):
+            self.assertFalse(is_leap(common_year), common_year)
+            self.assertEqual(days_in_month(common_year, 2), 28)
+
+        schedule = parse("0 0 29 2 *")
+        # 1900 与 2100 是整百年且不能被 400 整除，不是闰年，必须整体跳过。
+        self.assertEqual(schedule.next_after(dt(1896, 3, 1)), dt(1904, 2, 29))
+        self.assertEqual(schedule.next_after(dt(1996, 3, 1)), dt(2000, 2, 29))
+        self.assertEqual(schedule.next_after(dt(2096, 3, 1)), dt(2104, 2, 29))
+
+    def test_names_case_insensitive_in_all_forms(self):
+        for month_name in ("JAN", "jan", "Jan"):
+            self.assertEqual(
+                parse("0 0 * %s *" % month_name).month.values, (1,)
+            )
+        for weekday_name in ("MON", "mon", "Mon"):
+            self.assertEqual(
+                parse("0 0 * * %s" % weekday_name).day_of_week.values, (1,)
+            )
+        # 范围与列表中的名字同样大小写不敏感。
+        schedule = parse("0 0 * jan,DEC mon-fri")
+        self.assertEqual(schedule.month.values, (1, 12))
+        self.assertEqual(schedule.day_of_week.values, (1, 2, 3, 4, 5))
+
+    def test_unknown_name_still_raises_with_invariant(self):
+        for expr, field, bad in (
+            ("0 0 * january *", "month", "january"),
+            ("0 0 * * monday", "day_of_week", "monday"),
+        ):
+            with self.subTest(expr=expr):
+                with self.assertRaises(ScheduleSyntaxError) as captured:
+                    parse(expr)
+                error = captured.exception
+                self.assertEqual(error.field, field)
+                self.assertEqual(error.value, bad)
+                end = error.position + len(error.value)
+                self.assertEqual(expr[error.position:end], bad)
+
+    def test_dom_dow_union_next_n_across_months(self):
+        # 每个 13 号与每个周五都触发；跨 9、10、11 三个月的并集序列。
+        schedule = parse("0 0 13 * FRI")
+        results = schedule.next_n(dt(2024, 9, 1), 14)
+        expected = [
+            dt(2024, 9, 6),    # 周五
+            dt(2024, 9, 13),   # 周五且 13 号（只出现一次）
+            dt(2024, 9, 20),
+            dt(2024, 9, 27),
+            dt(2024, 10, 4),
+            dt(2024, 10, 11),
+            dt(2024, 10, 13),  # 周日，仅因 13 号命中
+            dt(2024, 10, 18),
+            dt(2024, 10, 25),
+            dt(2024, 11, 1),
+            dt(2024, 11, 8),
+            dt(2024, 11, 13),  # 周三，仅因 13 号命中
+            dt(2024, 11, 15),
+            dt(2024, 11, 22),
+        ]
+        self.assertEqual(results, expected)
+
+    def test_star_fields_remain_every_day(self):
+        # DOM、DOW 都是 * 时每天都触发（这里限定每天 00:00）。
+        schedule = parse("0 0 * * *")
+        self.assertEqual(
+            schedule.next_n(dt(2024, 2, 27), 3),
+            [dt(2024, 2, 28), dt(2024, 2, 29), dt(2024, 3, 1)],
+        )
+
+
 class DescribeTests(unittest.TestCase):
     EXPECTED = {
         "* * * * *": "每分钟",
