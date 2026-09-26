@@ -319,5 +319,49 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """lzpack-f04 三处根因的回归测试。"""
+
+    def test_prev_table_index_masked_by_window(self):
+        # 根因 1（lz77.py）：prev 是 window 大小的环形数组，下标必须按
+        # window 取模。未取模时，输入长度超过 window 会越界（IndexError），
+        # 且链上取到错位的历史位置导致解压结果错误。
+        window = 1024
+        # 数据长度远超 window，且尾部重复开头内容，强制走哈希链
+        data = (LOG_LINE * 100) + bytes(range(256)) * 30 + (LOG_LINE * 100)
+        self.assertGreater(len(data), 8 * window)
+        tokens = list(find_tokens(data, 6, window))  # 修复前此处 IndexError
+        for token in tokens:
+            if token[0] == "m":
+                self.assertLessEqual(token[1], window)
+        self.assertEqual(lzpack.decompress(lzpack.compress(data, window=window)),
+                         data)
+
+    def test_literal_block_length_exact(self):
+        # 根因 2（codec.py）：字面量块长度 = 标签 + 1。多算一字节时解码会
+        # 多吞一个字节，token 边界整体错位。
+        for size in (1, 2, 127, 128, 129, 300):
+            data = random.Random(size).randbytes(size)  # 随机数据，必走字面量块
+            blob = lzpack.compress(data)
+            if size < 128:
+                # 原始长度 < 128 时长度字段恰为 1 字节，头部共 12 字节，
+                # 首个数据块标签 = 首块长度 - 1
+                self.assertEqual(blob[12], size - 1)
+            self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_varint_up_to_nine_bytes(self):
+        # 根因 3（varint.py）：变长整数上限是 9 字节（63 位）。上限被改小后
+        # 长整数编解码不再往返。
+        from lzpack.varint import MAX_VARINT_BYTES
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 35, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 9 字节全 0xFF（无终止字节）必须报 FormatError 而非静默截断
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 9, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

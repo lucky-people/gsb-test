@@ -225,7 +225,7 @@ class Decompressor:
         while pos < n:
             tag = buf[pos]
             if tag < 0x80:
-                cnt = tag + 2
+                cnt = tag + 1  # 字面量块长度 = 标签 + 1（1..128）
                 if pos + 1 + cnt > n:
                     break  # 字面量块没收全，等更多数据
                 seg = bytes(buf[pos + 1:pos + 1 + cnt])
