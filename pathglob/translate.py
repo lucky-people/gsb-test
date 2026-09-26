@@ -141,14 +141,31 @@ def translate(body, anchored, directory_only, original, offset):
     lit_parts = []
     need_slash = False
     count = len(segments)
+    # 目录规则下，主体里的 `**` 是否已经自带 inside 捕获组
+    # （单独 `**` 或结尾 `/**`）；若自带，外层不再追加自身/下级后缀
+    body_has_inside = False
     for idx, (seg, segpos) in enumerate(segments):
         if seg == "**":
             lit_parts = None
             if count == 1:
-                parts.append(".*")
+                # 单独的 `**` 匹配一切。目录规则下整段都视为“下级内容”
+                # （inside 非空），目录自身只剩空串可匹配，而空路径在
+                # normalize_path 阶段已被拒绝，因此 `**/` 不会误中文件
+                if directory_only:
+                    parts.append("(?P<inside>.*)")
+                    body_has_inside = True
+                else:
+                    parts.append(".*")
             elif idx == count - 1:
-                # 结尾 `/**`：匹配自身及下级所有内容
-                parts.append("/.*" if need_slash else ".*")
+                # 结尾 `/**`：斜杠部分可选，从而同时匹配目录自身与下级
+                if directory_only:
+                    parts.append(
+                        "(?:/(?P<inside>.*))?" if need_slash
+                        else "(?P<inside>.*)"
+                    )
+                    body_has_inside = True
+                else:
+                    parts.append("(?:/.*)?" if need_slash else ".*")
             else:
                 # 中间 `/**/`：匹配零层或多层目录
                 parts.append("/(?:.*/)?" if need_slash else "(?:.*/)?")
@@ -165,8 +182,13 @@ def translate(body, anchored, directory_only, original, offset):
         need_slash = True
 
     body_re = "".join(parts)
-    prefix = "(?:.*/)?"
-    if directory_only:
+    # 只有非锚定规则才允许在任意层级命中；锚定规则（前导 `/` 或
+    # 主体中间含 `/`）必须从根开始，不能加任意深度前缀
+    prefix = "" if anchored else "(?:.*/)?"
+    if directory_only and body_has_inside:
+        # inside 捕获组已在主体中（`**/` 或 `a/**/`），直接封尾
+        regex = "^" + prefix + body_re + "$"
+    elif directory_only:
         # 目录规则：匹配目录自身（inside 不参与）或其下任意内容
         regex = "^" + prefix + body_re + "(?:/(?P<inside>.*))?$"
     else:

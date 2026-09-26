@@ -416,5 +416,133 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestRegressionAnchoredPrefix(unittest.TestCase):
+    """根因回归：锚定规则不得被无条件加上 `(?:.*/)?` 前缀。
+
+    前导 `/` 或主体中间含 `/` 的规则只匹配根相对路径，不允许在
+    任意层级命中；且 Pattern.matches 与 Matcher 两个入口结论一致。
+    """
+
+    def _assert_consistent(self, pattern, path, is_dir=False):
+        pat = compile_pattern(pattern)
+        expected = pat.matches(path, is_dir=is_dir)
+        matcher = Matcher([pattern])
+        self.assertEqual(
+            matcher.match(path, is_dir=is_dir) is not None, expected,
+            f"match 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+        self.assertEqual(
+            matcher.ignores(path, is_dir=is_dir), expected,
+            f"ignores 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+
+    def test_leading_slash_does_not_match_nested(self):
+        p = compile_pattern("/foo")
+        self.assertTrue(p.anchored)
+        self.assertTrue(p.matches("foo"))
+        self.assertFalse(p.matches("a/foo"))
+        self.assertFalse(p.matches("a/b/foo"))
+
+    def test_middle_slash_does_not_match_nested(self):
+        p = compile_pattern("doc/a.md")
+        self.assertTrue(p.anchored)
+        self.assertTrue(p.matches("doc/a.md"))
+        self.assertFalse(p.matches("x/doc/a.md"))
+
+    def test_anchored_wildcard_does_not_match_nested(self):
+        p = compile_pattern("doc/*.md")
+        self.assertTrue(p.matches("doc/a.md"))
+        self.assertFalse(p.matches("x/doc/a.md"))
+        self.assertFalse(p.matches("a/b/doc/a.md"))
+
+    def test_anchored_escaped_rule_consistent_in_matcher(self):
+        # 转义后为纯字面量的锚定规则走分桶快查，桶键必须锚定到根
+        self._assert_consistent(r"/a\*b", "a*b")
+        self._assert_consistent(r"/a\*b", "x/a*b")
+        self._assert_consistent(r"dir/a\?b", "dir/a?b")
+        self._assert_consistent(r"dir/a\?b", "x/dir/a?b")
+
+    def test_anchored_directory_rule_does_not_match_nested(self):
+        p = compile_pattern("/build/")
+        self.assertTrue(p.matches("build", is_dir=True))
+        self.assertTrue(p.matches("build/out.o"))
+        self.assertFalse(p.matches("src/build", is_dir=True))
+        self.assertFalse(p.matches("src/build/out.o"))
+        self._assert_consistent("/build/", "src/build/out.o")
+
+    def test_unanchored_still_matches_any_depth(self):
+        # 修复锚定前缀时不能误伤非锚定规则
+        p = compile_pattern("foo")
+        self.assertTrue(p.matches("foo"))
+        self.assertTrue(p.matches("a/b/foo"))
+        d = compile_pattern("build/")
+        self.assertTrue(d.matches("build/out.o"))
+        self.assertTrue(d.matches("src/build/out.o"))
+
+
+class TestRegressionDirectoryIsDir(unittest.TestCase):
+    """根因回归：目录规则的“自身命中”必须要求 is_dir=True。"""
+
+    def test_exact_self_requires_dir_flag(self):
+        p = compile_pattern("build/")
+        self.assertFalse(p.matches("build"))
+        self.assertFalse(p.matches("build", is_dir=False))
+        self.assertTrue(p.matches("build", is_dir=True))
+
+    def test_contents_match_regardless_of_dir_flag(self):
+        p = compile_pattern("build/")
+        self.assertTrue(p.matches("build/out.o", is_dir=False))
+        self.assertTrue(p.matches("build/out.o", is_dir=True))
+
+    def test_wildcard_directory_rule_requires_dir_flag(self):
+        p = compile_pattern("*/build/")
+        self.assertFalse(p.matches("a/build"))
+        self.assertTrue(p.matches("a/build", is_dir=True))
+        self.assertTrue(p.matches("a/build/out.o"))
+
+    def test_trailing_double_star_directory_self_requires_dir_flag(self):
+        # `a/**/` 命中 a 自身时同样是目录命中，下级内容不受 is_dir 限制
+        p = compile_pattern("a/**/")
+        self.assertFalse(p.matches("a"))
+        self.assertTrue(p.matches("a", is_dir=True))
+        self.assertTrue(p.matches("a/x"))
+        self.assertTrue(p.matches("a/x/y"))
+
+    def test_three_entries_consistent_on_directory_self(self):
+        matcher = Matcher([r"a\ b/"])
+        self.assertFalse(matcher.ignores("a b"))
+        self.assertTrue(matcher.ignores("a b", is_dir=True))
+        self.assertTrue(matcher.ignores("a b/x"))
+
+
+class TestRegressionTrailingDoubleStar(unittest.TestCase):
+    """根因回归：结尾 `/**` 必须同时匹配目录自身与下级所有内容。"""
+
+    def test_matches_self_and_descendants(self):
+        p = compile_pattern("a/**")
+        self.assertTrue(p.matches("a"))
+        self.assertTrue(p.matches("a/x"))
+        self.assertTrue(p.matches("a/x/y"))
+
+    def test_does_not_match_sibling_prefix(self):
+        p = compile_pattern("a/**")
+        self.assertFalse(p.matches("ab"))
+        self.assertFalse(p.matches("ab/x"))
+
+    def test_anchored_trailing_double_star(self):
+        p = compile_pattern("doc/**")
+        self.assertTrue(p.matches("doc"))
+        self.assertTrue(p.matches("doc/a.md"))
+        self.assertTrue(p.matches("doc/sub/a.md"))
+        self.assertFalse(p.matches("x/doc/a.md"))
+
+    def test_trailing_double_star_in_matcher_consistent(self):
+        matcher = Matcher(["a/**"])
+        self.assertIsNotNone(matcher.match("a"))
+        self.assertTrue(matcher.ignores("a"))
+        self.assertTrue(matcher.ignores("a/x/y"))
+        self.assertFalse(matcher.ignores("ab"))
+
+
 if __name__ == "__main__":
     unittest.main()

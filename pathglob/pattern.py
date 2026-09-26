@@ -119,8 +119,11 @@ class Pattern:
         m = self._regex.match(target)
         if m is None:
             return False
-        if False:
-            return False
+        if self.directory_only:
+            # inside 为空表示命中的是目录自身：要求调用方确认目标确实
+            # 是目录；inside 非空表示命中的是目录下的内容，与 is_dir 无关
+            if m.group("inside") in (None, "") and not is_dir:
+                return False
         return True
 
     def __repr__(self):
