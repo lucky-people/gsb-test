@@ -314,6 +314,11 @@ class _Parser:
             return CharClass(False, (), (), (c,))
         if "0" <= c <= "9":
             num = int(c)
+            if num == 0:
+                self._error(
+                    "非法反向引用 '\\0'：组号从 1 开始（本引擎不支持八进制转义）",
+                    pos,
+                )
             self.backrefs.append((num, pos))
             return BackRef(num)
         if c.isalnum():

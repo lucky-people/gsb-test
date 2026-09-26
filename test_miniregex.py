@@ -143,6 +143,28 @@ class TestDotAndAnchors(unittest.TestCase):
         self.assertEqual(
             compile_pattern(".$", multiline=True).findall("ab\ncd"), ["b", "d"])
 
+    def test_multiline_bol_matches_after_each_newline(self):
+        # 回归：multiline 下 ^ 必须认每个 '\n' 之后的行首，而非只认整串开头
+        r = compile_pattern("^b", multiline=True)
+        self.assertEqual(r.search("a\nb").span(), (2, 3))
+        self.assertEqual(
+            compile_pattern("^.", multiline=True).findall("a\nb\nc"),
+            ["a", "b", "c"])
+        # 非 multiline 时仍只认整串开头
+        self.assertIsNone(compile_pattern("^b").search("a\nb"))
+
+    def test_multiline_eol_matches_before_each_newline(self):
+        # 回归：multiline 下 $ 必须认每个 '\n' 之前的行尾
+        r = compile_pattern("a$", multiline=True)
+        self.assertEqual(r.search("a\nb").span(), (0, 1))
+        self.assertEqual(
+            compile_pattern(".$", multiline=True).findall("a\nb\nc"),
+            ["a", "b", "c"])
+        # 行尾锚点不能错位到行首：'a$' 不应匹配 "xa\n" 中的 'x'
+        self.assertIsNone(compile_pattern("x$", multiline=True).search("xa\n"))
+        # 非 multiline 时仍只认整串结尾
+        self.assertIsNone(compile_pattern("a$").search("a\nb"))
+
 
 class TestQuantifiers(unittest.TestCase):
     """语义 4：贪婪与懒惰。"""
@@ -231,6 +253,18 @@ class TestAlternationAndGroups(unittest.TestCase):
         m = compile_pattern(r"(ab)\1", case_sensitive=False).match("aBAb")
         self.assertEqual(m.group(0), "aBAb")
 
+    def test_backref_unmatched_group_in_alternation_fails(self):
+        # 回归：反向引用指向未参与匹配的组时必须失败，而不是拿空串比较
+        r = compile_pattern(r"(a)|(b)\2")
+        self.assertIsNone(r.match("b"))
+        self.assertEqual(r.match("bb").group(0), "bb")
+        self.assertEqual(r.match("a").group(0), "a")
+
+    def test_forward_backref_to_not_yet_matched_group_fails(self):
+        # 向前引用运行时组尚未捕获，同样必须失败（README 差异表第 7 条）
+        self.assertIsNone(compile_pattern(r"\1(a)").match("a"))
+        self.assertIsNone(compile_pattern(r"\1(a)").match("aa"))
+
 
 class TestCaseInsensitive(unittest.TestCase):
     """语义 7：casefold 比较，捕获保留原文。"""
@@ -299,6 +333,12 @@ class TestPatternErrors(unittest.TestCase):
 
     def test_zero_backref(self):
         self.assert_error("\\0", 0)
+
+    def test_zero_backref_position_in_longer_pattern(self):
+        # 回归：\0 在任意位置都必须报 PatternError，位置指向 '\' 本身
+        self.assert_error("ab\\0", 2)
+        self.assert_error("(a)\\0", 3)
+        self.assert_error("[ab]\\0", 4)
 
     def test_unsupported_group_syntax(self):
         self.assert_error("(?=a)", 0)

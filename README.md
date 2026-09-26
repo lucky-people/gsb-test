@@ -11,7 +11,7 @@
 | `miniregex/parser.py` | 递归下降解析器：模式串 → AST，中文报错带精确位置 |
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
-| `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex.py` | unittest，66 个用例覆盖全部语义与报错 |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -56,12 +56,12 @@ group       = "(" ( "?:" )? pattern ")"
 | --- | --- |
 | 字符类 | `-` 在首/尾按字面；`]` 作首字符按字面；`\` 可转义；`[z-a]` 等非法范围抛 `PatternError` |
 | `.` | 默认不匹配 `\n`；`dot_all=True` 后匹配任意字符 |
-| `^` / `$` | 默认只匹配整串开头/结尾；`multiline=True` 后匹配每行行首/行尾（以 `\n` 为界） |
+| `^` / `$` | 默认只匹配整串开头/结尾；`multiline=True` 后 `^` 额外匹配每个 `\n` 之后的行首、`$` 额外匹配每个 `\n` 之前的行尾 |
 | 量词 | 默认贪婪，加 `?` 变懒惰；`a*?` 在 `aaa` 上 match 得空串 |
 | 选择 | 分支从左到右尝试，`ab\|a` 在 `ab` 上匹配 `ab` |
-| 分组 | 按左括号出现顺序编号，`(?:` 不编号；`\1` 引用该组实际捕获内容；引用不存在的组抛 `PatternError` |
+| 分组 | 按左括号出现顺序编号，`(?:` 不编号；`\1` 引用该组实际捕获内容；引用不存在的组或 `\0` 抛 `PatternError`；引用的组未参与匹配（含向前引用）时该分支匹配失败 |
 | 大小写 | `case_sensitive=False` 按 `str.casefold()` 比较，捕获文本保留原文 |
-| 报错 | 量词前无原子、`{` 后非法计数、`{3,2}` 次序颠倒、括号/字符类未闭合、模式以 `\` 结尾，均抛带精确位置的 `PatternError` |
+| 报错 | 量词前无原子、`{` 后非法计数、`{3,2}` 次序颠倒、括号/字符类未闭合、模式以 `\` 结尾、非法反向引用 `\0`，均抛带精确位置的 `PatternError` |
 
 ## 匹配算法与复杂度
 
@@ -113,6 +113,6 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
+python3 -m unittest test_miniregex   # 66 个测试
 python3 bench.py                     # 性能基准
 ```

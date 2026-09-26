@@ -252,19 +252,21 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
             pc += 1
             continue
         elif kind == _BOL:
-            if pos == 0:
+            # multiline 时 ^ 额外匹配每个 '\n' 之后的位置（行首）
+            if pos == 0 or (multiline and pos > 0 and text[pos - 1] == "\n"):
                 pc += 1
                 continue
         elif kind == _EOL:
-            if pos == n or (multiline and pos > 0 and text[pos - 1] == "\n"):
+            # multiline 时 $ 匹配每个 '\n' 之前的位置（行尾）
+            if pos == n or (multiline and pos < n and text[pos] == "\n"):
                 pc += 1
                 continue
         elif kind == _BACKREF:
             slot = 2 * op[1]
             lo = caps[slot]
             hi = caps[slot + 1]
-            lo, hi = 0, 0
-            if True:
+            # 引用的组未参与匹配（如 (a)?b\1 中 (a) 未命中）时本分支失败
+            if lo is not None and hi is not None:
                 seg = text[lo:hi]
                 if case_sensitive:
                     hit = text.startswith(seg, pos)
