@@ -61,7 +61,8 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 `Pattern.matches` 与 `Matcher` 内部都会先调用 `normalize_path`：
 
 - `\` 统一转为 `/`（Windows 分隔符输入可直接使用）；
-- 折叠重复的 `/`；去掉 `.` 段与结尾的 `/`；
+- 折叠重复的 `/`（空段直接丢弃，因此 `a//b` 与 `a/b` 规范化后相同，
+  结论必然一致）；去掉 `.` 段与结尾的 `/`；
 - 以下输入抛 `pathglob.errors.PathError`：绝对路径（`/x`）、盘符路径
   （`C:/x`、`C:x`）、含 `..` 段、空字符串、规范化后为空、非字符串。
 
@@ -72,7 +73,12 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
   是 `!` 取反规则则为 `False`；
 - `!` 规则没有任何前置规则时：`match` 返回该规则本身（确实命中），
   但 `ignores` 结果为 `False`；
-- `match` 在没有任何规则命中时返回 `None`。
+- `match` 在没有任何规则命中时返回 `None`；
+- **三入口一致性**：同一条规则、同一个路径，`Pattern.matches`、
+  `Matcher.match`（是否返回非 None）、`Matcher.ignores` 的结论
+  必须一致。Matcher 的字面量分桶键使用反转义、casefold 后的文本，
+  与 `Pattern` 内部正则的判定对象完全相同，因此不会出现“单条
+  Pattern 命中、放进 Matcher 却漏配”（或反之）的情况。
 
 ## 大小写策略
 
@@ -158,7 +164,7 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 59 个用例
 python3 bench.py                        # 性能基准
 ```
 

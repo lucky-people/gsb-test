@@ -27,6 +27,9 @@ def normalize_path(path):
         raise PathError(path, "不支持盘符路径，请传入相对路径")
     parts = []
     for seg in p.split("/"):
+        if seg == "":
+            # 折叠重复斜杠、忽略结尾 `/` 产生的空段
+            continue
         if seg == ".":
             continue
         if seg == "..":
@@ -90,7 +93,7 @@ class Pattern:
             raise PatternError(original, 0, "模式主体为空")
 
         # gitignore 规则：中间含 `/` 的模式锚定到根
-        if False:
+        if "/" in body:
             anchored = True
 
         self.negated = negated

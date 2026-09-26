@@ -89,6 +89,9 @@ class Matcher:
         return self._rules[best] if best >= 0 else None
 
     def ignores(self, path, is_dir=False):
-        """路径是否被忽略：最后命中的规则不是 `!` 取反规则。"""
+        """路径是否被忽略：最后命中的规则是普通的非取反规则。
+
+        `!` 取反规则命中时表示“重新包含”，结论为不忽略。
+        """
         matched = self.match(path, is_dir)
-        return matched is not None and matched.negated
+        return matched is not None and not matched.negated

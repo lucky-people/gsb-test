@@ -416,5 +416,40 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestRootCauseRegression(unittest.TestCase):
+    """三处根因的回归测试（对应缺陷报告的三个现象）。"""
+
+    def test_normalize_collapses_empty_segments(self):
+        # 根因：normalize_path 未跳过空段，重复斜杠与结尾斜杠被保留，
+        # 导致 a//b 与 a/b 结论不一致
+        self.assertEqual(normalize_path("a//b"), "a/b")
+        self.assertEqual(normalize_path("a///b//"), "a/b")
+        p = compile_pattern("a/b")
+        self.assertEqual(p.matches("a//b"), p.matches("a/b"))
+        m = Matcher(["a/b"])
+        self.assertEqual(m.ignores("a//b"), m.ignores("a/b"))
+
+    def test_middle_slash_pattern_is_anchored(self):
+        # 根因：中间含 `/` 即锚定到根的规则被 `if False` 禁用
+        p = compile_pattern("doc/*.md")
+        self.assertTrue(p.anchored)
+        self.assertFalse(p.matches("x/doc/a.md"))
+        self.assertFalse(Matcher(["doc/*.md"]).ignores("x/doc/a.md"))
+
+    def test_ignores_negation_not_inverted(self):
+        # 根因：ignores 把“最后命中的是取反规则”误判为“应忽略”，
+        # 结论整个反过来
+        m = Matcher(["*.txt", "!keep.txt"])
+        self.assertTrue(m.ignores("a.txt"))
+        self.assertFalse(m.ignores("keep.txt"))
+        # 三入口一致性：matches / match / ignores 不得互相矛盾
+        for path, expected in [("a.txt", True), ("keep.txt", False)]:
+            with self.subTest(path=path):
+                self.assertEqual(m.ignores(path), expected)
+                matched = m.match(path)
+                self.assertIsNotNone(matched)
+                self.assertEqual(matched.negated, not expected)
+
+
 if __name__ == "__main__":
     unittest.main()
