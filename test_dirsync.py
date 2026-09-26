@@ -185,6 +185,15 @@ class TestIgnoreRules(TempDirCase):
         self.assertNotIn("src/sub/temp.tmp", paths)
         self.assertIn("keep.txt", paths)
 
+    def test_double_star_matches_top_level(self):
+        # 回归：**/ 必须能匹配零层目录，顶层的 temp.tmp 也要被忽略
+        make_file(self.p("temp.tmp"), b"top")
+        paths = self.paths_of(["**/temp.tmp"])
+        self.assertNotIn("temp.tmp", paths)
+        self.assertNotIn("src/temp.tmp", paths)
+        self.assertNotIn("src/sub/temp.tmp", paths)
+        self.assertIn("keep.txt", paths)
+
     def test_trailing_slash_ignores_subtree(self):
         paths = self.paths_of(["build/"])
         self.assertNotIn("build", paths)
@@ -257,6 +266,16 @@ class TestApply(TempDirCase):
         self.assertEqual(r2.deleted, [])
         self.assertEqual(r2.unchanged_count, 4)
 
+    def test_unchanged_files_not_rewritten(self):
+        # 回归：apply 必须基于目标现状算差异，未变化的文件不应被重写
+        apply(self.src, self.manifest, self.dst)
+        victim = self.p("dst/a.txt")
+        old_time = 1_000_000_000
+        os.utime(victim, (old_time, old_time))
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.unchanged_count, 4)
+        self.assertEqual(os.stat(victim).st_mtime, old_time)
+
     def test_atomic_write_leaves_no_temp_files(self):
         apply(self.src, self.manifest, self.dst)
         for root, _dirs, files in os.walk(self.dst):
@@ -273,6 +292,19 @@ class TestApply(TempDirCase):
         r = apply(self.src, m2, self.dst)
         self.assertEqual(r.updated, ["a.txt"])
         self.assertEqual(verify(self.dst, m2), [])
+
+    def test_updated_source_also_checked(self):
+        # 回归：待更新（而非新建）的源文件同样要核对 size/sha256
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("src/a.txt"), b"changed")
+        m2 = snapshot(self.src)
+        # 快照之后源文件再次被篡改
+        make_file(self.p("src/a.txt"), b"tampered-again")
+        with self.assertRaises(ApplyError):
+            apply(self.src, m2, self.dst)
+        # 目标保持第一次 apply 后的原样
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"aaa")
 
     def test_prune_on_and_off(self):
         apply(self.src, self.manifest, self.dst)
