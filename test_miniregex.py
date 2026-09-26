@@ -143,6 +143,16 @@ class TestDotAndAnchors(unittest.TestCase):
         self.assertEqual(
             compile_pattern(".$", multiline=True).findall("ab\ncd"), ["b", "d"])
 
+    def test_eol_multiline_looks_at_next_char(self):
+        # miniregex-f03 回归：$ 判定的是“下一字符是否为 \n”，不能抄 ^ 的写法
+        r = compile_pattern("b$", multiline=True)
+        self.assertEqual(r.search("ab\ncd").span(), (1, 2))
+        # 'c' 在行首而非行尾，c$ 不应匹配
+        self.assertIsNone(compile_pattern("c$", multiline=True).search("ab\ncd"))
+        # 空行：^$ 匹配两个 \n 之间的空位置
+        self.assertEqual(
+            compile_pattern("^$", multiline=True).findall("a\n\nb"), [""])
+
 
 class TestQuantifiers(unittest.TestCase):
     """语义 4：贪婪与懒惰。"""
@@ -220,6 +230,15 @@ class TestAlternationAndGroups(unittest.TestCase):
         self.assertIsNone(compile_pattern(r"(a)?b\1").match("b"))
         self.assertIsNotNone(compile_pattern(r"(a)?b\1").match("aba"))
 
+    def test_backref_unmatched_group_regression(self):
+        # miniregex-f03 回归：未参与匹配的组不能按空串比较
+        # 向前引用：运行时该组尚未捕获，反向引用失败
+        self.assertIsNone(compile_pattern(r"\1(a)").match("a"))
+        # 分支未走到的组同样视为未参与
+        self.assertIsNone(compile_pattern(r"(?:(a)|b)x\1").match("bx"))
+        m = compile_pattern(r"(?:(a)|b)x\1").match("axa")
+        self.assertEqual(m.group(0), "axa")
+
     def test_backref_missing_group_raises(self):
         with self.assertRaises(PatternError) as ctx:
             compile_pattern(r"(a)\2")
@@ -269,6 +288,11 @@ class TestPatternErrors(unittest.TestCase):
         self.assert_error("?a", 0)
         self.assert_error("a**", 2)
         self.assert_error("a|*", 2)
+
+    def test_quantifier_without_atom_in_group(self):
+        # miniregex-f03 回归：左括号或分支后的量词同样没有原子
+        self.assert_error("(*a)", 1)
+        self.assert_error("a(b|+)c", 4)
 
     def test_bad_brace(self):
         self.assert_error("a{,}", 1)

@@ -11,7 +11,7 @@
 | `miniregex/parser.py` | 递归下降解析器：模式串 → AST，中文报错带精确位置 |
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
-| `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex.py` | unittest，64 个用例覆盖全部语义与报错 |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -63,6 +63,16 @@ group       = "(" ( "?:" )? pattern ")"
 | 大小写 | `case_sensitive=False` 按 `str.casefold()` 比较，捕获文本保留原文 |
 | 报错 | 量词前无原子、`{` 后非法计数、`{3,2}` 次序颠倒、括号/字符类未闭合、模式以 `\` 结尾，均抛带精确位置的 `PatternError` |
 
+## 修复记录
+
+### miniregex-f03（2026-09-26）
+
+本次修复涉及三条语义，均已在上方语义表中对齐实现：
+
+1. **反向引用未参与匹配的组**：此前捕获槽被错误地按 `(0, 0)` 处理，`\1` 会拿空串比较而恒真；现恢复为"组未参与（槽位为 `None`）则反向引用直接失败"，与语义表"分组"行及差异表第 7 条一致（含 `\1(a)` 这类向前引用）。
+2. **`multiline=True` 时 `$` 的判定**：此前误抄 `^` 的写法（看前一字符是否为 `\n`），导致行尾锚点错位；现恢复为"当前位置是文本末尾，或下一字符是 `\n`"，与语义表"`^` / `$`"行一致。
+3. **量词前无原子**：此前 `*` / `+` / `?` 出现在原子之前时被当字面量吞掉；现恢复为抛带精确位置的 `PatternError`，与语义表"报错"行一致（未跟在原子后的 `{` 仍按字面量，不受影响）。
+
 ## 匹配算法与复杂度
 
 **策略：回溯 + 步数上限**（为支持反向引用，未采用纯 Thompson NFA）。
@@ -113,6 +123,6 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
+python3 -m unittest test_miniregex   # 64 个测试
 python3 bench.py                     # 性能基准
 ```
