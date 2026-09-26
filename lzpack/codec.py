@@ -76,7 +76,7 @@ def validate_config(level, window):
         raise ConfigError("level 只允许 1..9，收到: %d" % level)
     if isinstance(window, bool) or not isinstance(window, int):
         raise ConfigError("window 必须是 1KB..1MB 之间 2 的幂，收到: %r" % (window,))
-    if not MIN_WINDOW <= window <= MAX_WINDOW:
+    if not MIN_WINDOW <= window <= MAX_WINDOW or window & (window - 1):
         raise ConfigError(
             "window 只允许 1KB..1MB 之间 2 的幂，收到: %d" % window)
 
@@ -98,7 +98,8 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        # 标签 = 长度 - 1（解码端按 标签 + 1 还原长度）
+        out.append(len(part) - 1)
         out += part
 
 

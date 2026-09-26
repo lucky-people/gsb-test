@@ -55,7 +55,8 @@ def find_tokens(data, level, window):
         if i + MIN_MATCH <= n:
             h = _hash3(data, i)
             j = head[h]
-            prev[i] = j
+            # prev 是 window 大小的环形数组，下标必须按窗口取模
+            prev[i & wmask] = j
             head[h] = i
             limit = i - window  # 只允许偏移 <= window，即 j >= i - window
             depth = depth_max

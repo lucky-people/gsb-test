@@ -319,5 +319,49 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """lzpack-f07 三处根因的回归测试。"""
+
+    def test_regress_window_must_be_power_of_two(self):
+        # 根因：validate_config 漏了“2 的幂”校验，非 2 的幂被静默接受
+        for bad in (1023, 1025, 1536, 3 << 10, 100000, (1 << 20) + 1):
+            with self.assertRaises(ConfigError, msg="window=%d" % bad):
+                codec.validate_config(6, bad)
+        for good in (1 << 10, 1 << 15, 1 << 20):
+            codec.validate_config(6, good)  # 合法值不抛异常
+
+    def test_regress_literal_tag_is_length_minus_one(self):
+        # 根因：字面量块的标签写成了长度本身（应为 长度 - 1），
+        # 解码端按“标签 + 1”还原长度，整块会多吃一个字节
+        for size in (1, 2, 127, 128, 129, 300):
+            out = bytearray()
+            codec._emit_literals(out, bytes(size))
+            pos = 0
+            remaining = size
+            while remaining:
+                block = min(remaining, 128)
+                self.assertEqual(out[pos], block - 1,
+                                 "块长 %d 的标签应为 %d" % (block, block - 1))
+                pos += 1 + block
+                remaining -= block
+            self.assertEqual(pos, len(out))
+        # 端到端：不可压缩数据逐字节往返
+        data = random.Random(20260926).randbytes(1000)
+        self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+
+    def test_regress_prev_index_mod_window(self):
+        # 根因：哈希链前驱表 prev 的下标没按窗口取模，
+        # 输入长度超过 window 时越界，链上取到错位的历史位置
+        data = (LOG_LINE * 2000) + bytes(range(256)) * 200  # 长度远超两种 window
+        for window in (1024, 32768):
+            tokens = list(find_tokens(data, 6, window))  # 不应抛 IndexError
+            for token in tokens:
+                if token[0] == "m":
+                    self.assertGreaterEqual(token[1], 1)
+                    self.assertLessEqual(token[1], window)
+            blob = lzpack.compress(data, window=window)
+            self.assertEqual(lzpack.decompress(blob), data)
+
+
 if __name__ == "__main__":
     unittest.main()
