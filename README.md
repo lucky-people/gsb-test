@@ -11,7 +11,7 @@
 | `miniregex/parser.py` | 递归下降解析器：模式串 → AST，中文报错带精确位置 |
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
-| `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex.py` | unittest，68 个用例覆盖全部语义与报错 |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -110,9 +110,19 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 - 量词展开而非计数器指令：实现简单、回溯语义直观；代价是 `{n}` 的 n 有上限（10000）。
 - 解析器使用 Python 递归：嵌套过深的模式（约千层括号）会触发 `RecursionError`，视为超出设计边界。
 
+## 修复记录（miniregex-f03）
+
+本次修复了三处实现与上文语义表不符的缺陷，涉及以下几条语义：
+
+1. **反向引用（语义表"分组"、差异表第 7 条）**：`BACKREF` 指令曾丢弃捕获槽中的边界、恒按空串比较。现恢复为：引用未参与匹配（或尚未捕获）的组时本次尝试失败；组参与了但捕获为空串时仍匹配空串。
+2. **锚点（语义表"^ / $"）**：`multiline=True` 时 `$` 的判定曾误用 `^` 的写法（检查 `\n` 之后的位置）。现恢复为：`$` 匹配每行行尾，即 `\n` 之前的位置（或文本末尾）。
+3. **报错（语义表"报错"）**：量词 `*` `+` `?` 前没有原子时曾被当作字面量。现恢复为：抛出带精确位置的 `PatternError`（量词后表示懒惰的 `?` 不受影响）。
+
+每条根因均补了回归测试（`test_miniregex.py` 中 `test_multiline_eol_*`、`test_backref_unmatched_branch_group_fails`、`test_forward_backref_fails_at_runtime`、`test_backref_empty_capture_matches_empty`、`test_quantifier_without_atom_in_group`、`test_lazy_marker_is_not_atomless_quantifier`）。
+
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
+python3 -m unittest test_miniregex   # 68 个测试
 python3 bench.py                     # 性能基准
 ```

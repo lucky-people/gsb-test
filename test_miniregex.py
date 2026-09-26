@@ -143,6 +143,19 @@ class TestDotAndAnchors(unittest.TestCase):
         self.assertEqual(
             compile_pattern(".$", multiline=True).findall("ab\ncd"), ["b", "d"])
 
+    def test_multiline_eol_matches_before_newline(self):
+        # 回归：multiline 下 $ 应匹配 \n 之前的位置（曾误判为 \n 之后）
+        r = compile_pattern("a$", multiline=True)
+        self.assertEqual(r.search("a\nb").span(), (0, 1))
+        self.assertIsNone(compile_pattern("c$", multiline=True).search("ab\ncd"))
+
+    def test_multiline_eol_not_after_newline(self):
+        # 回归：$ 不能匹配行首（\n 之后）的位置
+        self.assertIsNone(compile_pattern("$b", multiline=True).search("a\nb"))
+        # 文本末尾仍然是合法的 $ 位置
+        self.assertEqual(
+            compile_pattern("d$", multiline=True).search("ab\ncd").span(), (4, 5))
+
 
 class TestQuantifiers(unittest.TestCase):
     """语义 4：贪婪与懒惰。"""
@@ -231,6 +244,22 @@ class TestAlternationAndGroups(unittest.TestCase):
         m = compile_pattern(r"(ab)\1", case_sensitive=False).match("aBAb")
         self.assertEqual(m.group(0), "aBAb")
 
+    def test_backref_unmatched_branch_group_fails(self):
+        # 回归：交替中未参与的组被引用时必须失败（曾被当作空串比较）
+        self.assertIsNone(compile_pattern(r"(a)|(b)\1").match("b"))
+        self.assertEqual(
+            compile_pattern(r"(a)|(b)\2").match("bb").group(0), "bb")
+
+    def test_forward_backref_fails_at_runtime(self):
+        # 允许向前引用，但运行时该组尚未捕获则本次尝试失败（差异表第 7 条）
+        self.assertIsNone(compile_pattern(r"\1(a)").match("a"))
+        self.assertIsNone(compile_pattern(r"\1(a)").match("aa"))
+
+    def test_backref_empty_capture_matches_empty(self):
+        # 组参与了匹配但捕获为空串时，反向引用匹配空串（与未参与不同）
+        m = compile_pattern(r"(a*)b\1").match("b")
+        self.assertEqual(m.group(0), "b")
+
 
 class TestCaseInsensitive(unittest.TestCase):
     """语义 7：casefold 比较，捕获保留原文。"""
@@ -269,6 +298,17 @@ class TestPatternErrors(unittest.TestCase):
         self.assert_error("?a", 0)
         self.assert_error("a**", 2)
         self.assert_error("a|*", 2)
+
+    def test_quantifier_without_atom_in_group(self):
+        # 回归：分组/分支开头的量词同样要报错（曾被当作字面量）
+        self.assert_error("(*a)", 1)
+        self.assert_error("(a|+)", 3)
+        self.assert_error("a{2}*", 4)
+
+    def test_lazy_marker_is_not_atomless_quantifier(self):
+        # 量词后的 '?' 是懒惰标记，不属于"量词前无原子"
+        self.assertEqual(compile_pattern("a*?").match("aaa").group(0), "")
+        self.assertEqual(compile_pattern("a+?").match("aaa").group(0), "a")
 
     def test_bad_brace(self):
         self.assert_error("a{,}", 1)

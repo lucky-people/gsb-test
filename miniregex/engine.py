@@ -256,15 +256,15 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
                 pc += 1
                 continue
         elif kind == _EOL:
-            if pos == n or (multiline and pos > 0 and text[pos - 1] == "\n"):
+            if pos == n or (multiline and pos < n and text[pos] == "\n"):
                 pc += 1
                 continue
         elif kind == _BACKREF:
             slot = 2 * op[1]
             lo = caps[slot]
             hi = caps[slot + 1]
-            lo, hi = 0, 0
-            if True:
+            # 引用的组未参与匹配（或尚未捕获）时，本次尝试失败
+            if lo is not None and hi is not None:
                 seg = text[lo:hi]
                 if case_sensitive:
                     hit = text.startswith(seg, pos)
