@@ -143,6 +143,20 @@ class TestDotAndAnchors(unittest.TestCase):
         self.assertEqual(
             compile_pattern(".$", multiline=True).findall("ab\ncd"), ["b", "d"])
 
+    def test_anchors_multiline_bol_each_line(self):
+        # 回归：multiline 下 ^ 必须认每行行首（'\n' 之后），而非只认整串开头
+        m = compile_pattern("^b", multiline=True).search("a\nb")
+        self.assertEqual(m.span(), (2, 3))
+        self.assertEqual(
+            compile_pattern("^b", multiline=True).findall("b\nab\nb"),
+            ["b", "b"])
+
+    def test_anchors_multiline_eol_before_newline(self):
+        # 回归：multiline 下 $ 匹配行尾（'\n' 之前），而不是行首之后
+        m = compile_pattern("a$", multiline=True).search("a\nb")
+        self.assertEqual(m.span(), (0, 1))
+        self.assertIsNone(compile_pattern("$b", multiline=True).search("a\nb"))
+
 
 class TestQuantifiers(unittest.TestCase):
     """语义 4：贪婪与懒惰。"""
@@ -219,6 +233,18 @@ class TestAlternationAndGroups(unittest.TestCase):
     def test_backref_to_unmatched_group_fails(self):
         self.assertIsNone(compile_pattern(r"(a)?b\1").match("b"))
         self.assertIsNotNone(compile_pattern(r"(a)?b\1").match("aba"))
+
+    def test_backref_unmatched_group_not_treated_as_empty(self):
+        # 回归：组未参与匹配时反向引用必须失败，而不是按空串放行
+        self.assertIsNone(compile_pattern(r"(x)?\1").match(""))
+        self.assertIsNone(compile_pattern(r"(x)?\1").match("x"))
+        self.assertEqual(
+            compile_pattern(r"(x)?\1").match("xx").group(0), "xx")
+
+    def test_backref_forward_reference_fails_at_runtime(self):
+        # 回归：向前引用在运行时该组尚未捕获，反向引用失败而非匹配空串
+        self.assertIsNone(compile_pattern(r"\1(a)").search("a"))
+        self.assertIsNone(compile_pattern(r"\1(a)").search(""))
 
     def test_backref_missing_group_raises(self):
         with self.assertRaises(PatternError) as ctx:
@@ -299,6 +325,11 @@ class TestPatternErrors(unittest.TestCase):
 
     def test_zero_backref(self):
         self.assert_error("\\0", 0)
+
+    def test_zero_backref_position_in_pattern(self):
+        # 回归：\0 在模式中间也要报 PatternError，位置指向 '\'
+        self.assert_error("a\\0", 1)
+        self.assert_error("(a)\\0", 3)
 
     def test_unsupported_group_syntax(self):
         self.assert_error("(?=a)", 0)
