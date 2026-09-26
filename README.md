@@ -55,7 +55,7 @@ bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 | 规则形式 | 语义 |
 | --- | --- |
 | `*.log` | fnmatch 语义，`*` / `?` 不跨 `/`；不含 `/` 的规则同时匹配完整路径与 basename |
-| `**/temp.tmp` | `**` 可跨任意层目录 |
+| `**/temp.tmp` | `**` 可跨任意层目录；`**/` 也可匹配零层目录，因此顶层的 `temp.tmp` 同样命中 |
 | `build/` | 以 `/` 结尾：忽略整棵子树（目录本身及其下所有内容） |
 | `!keep.log` | `!` 前缀：重新包含（取消之前的忽略） |
 
@@ -72,7 +72,8 @@ ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
 - 清单路径必须是相对 POSIX 路径：绝对路径、盘符（`C:`）、`..`、空路径、
   重复路径一律抛 `ManifestError`，从根上杜绝目录穿越；
 - `apply` 在修改任何文件**之前**先全量校验清单，并核对 source 里每个
-  待写文件的 size 与 sha256，任一不一致即抛 `ApplyError`，此时磁盘零改动；
+  待写文件（新建与修改）的 size 与 sha256，任一不一致即抛 `ApplyError`，
+  此时磁盘零改动；
 - `dry_run=True` 时只计算报告，不修改磁盘上的任何字节。
 
 ## 幂等与原子写策略
@@ -81,7 +82,8 @@ ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
   后用 `os.replace` 原子替换，目标路径任意时刻要么是老内容要么是新内容，
   不会出现写了一半的文件；符号链接同样先建临时链接再 `os.replace`；
 - **幂等**：`apply` 基于目标目录的实时快照计算差异，连续执行两次时，
-  第二次的 `created` / `updated` / `deleted` 全部为空；
+  第二次的 `created` / `updated` / `deleted` 全部为空，未变化的文件
+  不会被重写；
 - `prune=True`（默认）删除目标里清单外的多余条目；`prune=False` 时保留。
 
 ## 复杂度

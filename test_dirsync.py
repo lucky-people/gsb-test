@@ -185,6 +185,19 @@ class TestIgnoreRules(TempDirCase):
         self.assertNotIn("src/sub/temp.tmp", paths)
         self.assertIn("keep.txt", paths)
 
+    def test_double_star_matches_zero_dirs(self):
+        # 回归：**/ 必须能匹配零层目录，顶层文件也要命中
+        make_file(self.p("temp.tmp"), b"top")
+        paths = self.paths_of(["**/temp.tmp"])
+        self.assertNotIn("temp.tmp", paths)
+        self.assertNotIn("src/temp.tmp", paths)
+        self.assertNotIn("src/sub/temp.tmp", paths)
+        # 中间夹 **/ 时同样允许零层：src/**/temp.tmp 命中 src/temp.tmp
+        paths2 = self.paths_of(["src/**/temp.tmp"])
+        self.assertNotIn("src/temp.tmp", paths2)
+        self.assertNotIn("src/sub/temp.tmp", paths2)
+        self.assertIn("keep.txt", paths2)
+
     def test_trailing_slash_ignores_subtree(self):
         paths = self.paths_of(["build/"])
         self.assertNotIn("build", paths)
@@ -273,6 +286,33 @@ class TestApply(TempDirCase):
         r = apply(self.src, m2, self.dst)
         self.assertEqual(r.updated, ["a.txt"])
         self.assertEqual(verify(self.dst, m2), [])
+
+    def test_apply_does_not_rewrite_unchanged_files(self):
+        # 回归：apply 必须基于目标现状增量同步，未变化的文件不重写
+        apply(self.src, self.manifest, self.dst)
+        before = os.stat(self.p("dst/a.txt"))
+        r = apply(self.src, self.manifest, self.dst)
+        after = os.stat(self.p("dst/a.txt"))
+        self.assertEqual(r.unchanged_count, 4)
+        self.assertEqual(before.st_ino, after.st_ino)  # 未被替换
+        self.assertEqual(before.st_mtime_ns, after.st_mtime_ns)
+
+    def test_source_tampered_updated_file_raises_and_untouched(self):
+        # 回归：被修改（updated）的待写文件也要核对 size/sha256，
+        # 源被篡改时抛 ApplyError，且整个目标保持原样（其他文件也不写）
+        apply(self.src, self.manifest, self.dst)
+        # 源在快照后被篡改；目标里该文件内容也与清单不符（进入 updated）
+        make_file(self.p("src/a.txt"), b"tampered!")
+        make_file(self.p("dst/a.txt"), b"stale")
+        # 另一个文件是合法的待更新项，用来确认出错时它也没被写入
+        make_file(self.p("src/sub/b.txt"), b"new-bbb")
+        make_file(self.p("dst/sub/b.txt"), b"old-bbb")
+        with self.assertRaises(ApplyError):
+            apply(self.src, self.manifest, self.dst)
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"stale")
+        with open(self.p("dst/sub/b.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"old-bbb")
 
     def test_prune_on_and_off(self):
         apply(self.src, self.manifest, self.dst)
