@@ -232,6 +232,17 @@ class TestDiff(unittest.TestCase):
         for lst in (d.added, d.removed, d.modified, d.unchanged):
             self.assertEqual(lst, sorted(lst))
 
+    def test_same_size_different_sha_is_modified(self):
+        # 回归：等长改写（大小不变、内容变）必须算 modified，不能只看大小
+        old = Manifest([self.entry("f.txt", size=3, sha="a" * 64)])
+        new = Manifest([self.entry("f.txt", size=3, sha="b" * 64)])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["f.txt"])
+        self.assertEqual(d.unchanged, [])
+        same = diff_manifests(new, new)
+        self.assertEqual(same.unchanged, ["f.txt"])
+        self.assertEqual(same.modified, [])
+
 
 class TestApply(TempDirCase):
     def setUp(self):
@@ -256,6 +267,41 @@ class TestApply(TempDirCase):
         self.assertEqual(r2.updated, [])
         self.assertEqual(r2.deleted, [])
         self.assertEqual(r2.unchanged_count, 4)
+
+    def test_apply_uses_existing_target_state(self):
+        # 回归：apply 必须读取目标目录现状，而不是当作空目录重建。
+        # 目标已手工准备成与清单一致时，首次 apply 就应当全部 unchanged。
+        os.makedirs(self.p("dst/sub"))
+        os.makedirs(self.p("dst/emptydir"))
+        make_file(self.p("dst/a.txt"), b"aaa")
+        make_file(self.p("dst/sub/b.txt"), b"bbb")
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 4)
+
+    def test_same_size_rewrite_in_target_is_updated(self):
+        # 回归：目标里等长改写的内容必须被识别并回写为源内容
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("dst/a.txt"), b"XXX")  # 等长篡改
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.updated, ["a.txt"])
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"aaa")
+
+    def test_updated_source_tampered_raises_before_any_write(self):
+        # 回归：被「修改」（而非新建）的文件同样要先核对源，
+        # 且报错时磁盘零改动——包括其他待新建文件也不许写
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("src/a.txt"), b"tampered!")   # 源被篡改（清单未更新）
+        make_file(self.p("dst/a.txt"), b"stale")       # 使 a.txt 走 updated 路径
+        os.unlink(self.p("dst/sub/b.txt"))             # 使 sub/b.txt 走 created 路径
+        with self.assertRaises(ApplyError):
+            apply(self.src, self.manifest, self.dst)
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"stale")       # 被改文件保持原样
+        self.assertFalse(os.path.exists(self.p("dst/sub/b.txt")))  # 未发生任何写入
 
     def test_atomic_write_leaves_no_temp_files(self):
         apply(self.src, self.manifest, self.dst)
