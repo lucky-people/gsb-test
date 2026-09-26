@@ -91,9 +91,11 @@ def _translate_segment(seg, original, base):
             i = k + 1
         elif c == "\\":
             if i + 1 >= n:
-                out.append(re.escape("\\"))
-                i += 1
-                continue
+                # 孤立反斜杠（段尾、也就是模式主体末尾的 `\`）非法
+                raise PatternError(
+                    original, base + i,
+                    "反斜杠后没有可转义的字符（孤立的 '\\'）",
+                )
             out.append(re.escape(seg[i + 1]))
             if lit is not None:
                 # 转义序列贡献的是被转义的那个字符本身

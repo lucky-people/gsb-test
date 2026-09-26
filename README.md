@@ -53,7 +53,8 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 - 目录规则（`foo/`）匹配该目录自身（需 `is_dir=True`）**以及其下所有
   内容**（`foo/bar` 任意 `is_dir` 都命中），与 gitignore 的目录忽略
   语义一致。
-- 模式末尾单独的 `\` 抛 `PatternError`；未闭合的 `[` 抛
+- 反斜杠后没有可转义字符（段尾的孤立 `\`，包括模式末尾与 `/` 前，
+  如 `abc\`、`foo\/bar`）抛 `PatternError`；未闭合的 `[` 抛
   `PatternError`；空模式、只有 `!`、只有 `/` 抛 `PatternError`。
 
 ## 路径规范化（normalize_path）
@@ -158,11 +159,36 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 65 个用例
 python3 bench.py                        # 性能基准
 ```
 
 覆盖：`*` 与 `**` 差异、锚定、目录规则、字符类与取反、转义、
 `!` 重新包含与最后匹配优先、路径规范化与非法路径、大小写模式、
 非 ASCII 与空格文件名、4096 字符超长路径、`!` 规则无前置规则、
-以及 500 路径 × 50 规则的性能用例。
+以及 500 路径 × 50 规则的性能用例；另含 `TestPathglobF04Regression`
+对下列 f04 修复语义的逐条钉死（含三个入口一致性断言）。
+
+## 修复记录（pathglob-f04）
+
+真实输入下发现三处核心语义被短路，本次修复涉及以下语义：
+
+1. **孤立反斜杠必须报错**：反斜杠只用于转义后一个字符，段尾的
+   孤立 `\`（模式末尾 `abc\`，以及斜杠前 `foo\/bar`）抛
+   `PatternError`（错误位置为该 `\` 的下标），不再被当成字面
+   反斜杠静默接受。
+2. **目录规则的自身命中要求 `is_dir=True`**：`build/` 在
+   `is_dir=False` 时不匹配 `build` 本身；其下内容（`build/x`）
+   任意 `is_dir` 仍命中。`Pattern.matches`、`Matcher.match`、
+   `Matcher.ignores` 三个入口对同一条规则、同一路径结论一致，
+   `!` 取反规则仍可把目录自身重新包含。
+3. **中间含 `/` 的模式锚定到根**：不只是前导 `/`，模式主体中
+   只要出现 `/`（如 `doc/*.md`、`src/main.py`、`a\ b/`）就只在
+   仓库根匹配，不再命中任意层级下的同名路径。
+4. **多段字面量规则的分桶随之恢复正确**：Matcher 依赖
+   `anchored`/`directory_only` 决定字面量桶归属；锚定语义恢复后，
+   多段字面量规则重新走「锚定文件按完整路径 / 锚定目录按前缀」
+   的字典快查，不再被错分进 basename 桶而静默漏配。
+
+以上改动不影响既有公开 API 与性能结构：字面量规则仍走分桶、
+通配符规则才逐条跑预编译正则。

@@ -383,6 +383,104 @@ class TestPatternErrors(unittest.TestCase):
         self.assertTrue(p.case_sensitive)
 
 
+class TestPathglobF04Regression(unittest.TestCase):
+    """pathglob-f04 事故回归：三处核心语义曾被短路，这里逐个钉死。"""
+
+    def assert_three_entries_agree(self, rules, path, is_dir=False):
+        """同一条规则、同一路径，matches / match / ignores 结论必须一致。
+
+        单条规则集时，match 是否命中必须等于 Pattern.matches，
+        ignores 取其非取反结果。
+        """
+        patterns = [compile_pattern(r) if isinstance(r, str) else r
+                    for r in rules]
+        matched_flags = [pat.matches(path, is_dir=is_dir) for pat in patterns]
+        matcher = Matcher(rules)
+        matched = matcher.match(path, is_dir=is_dir)
+        last_hit = max((i for i, hit in enumerate(matched_flags) if hit),
+                       default=-1)
+        self.assertEqual(
+            matched is not None, last_hit >= 0,
+            f"match 与 matches 不一致：{rules!r} vs {path!r}",
+        )
+        expected_ignores = last_hit >= 0 and not patterns[last_hit].negated
+        self.assertEqual(
+            matcher.ignores(path, is_dir=is_dir), expected_ignores,
+            f"ignores 与 matches 不一致：{rules!r} vs {path!r}",
+        )
+
+    # --- 根因 1：孤立反斜杠必须报 PatternError ---
+
+    def test_trailing_backslash_in_last_segment_raises(self):
+        for bad in ("abc\\", "dir/sub/x\\", "a\\ b/x\\"):
+            with self.subTest(pattern=bad):
+                with self.assertRaises(PatternError) as ctx:
+                    compile_pattern(bad)
+                self.assertEqual(ctx.exception.pattern, bad)
+                self.assertIn("反斜杠", str(ctx.exception))
+
+    def test_lonely_backslash_before_slash_also_raises(self):
+        # 斜杠前的孤立反斜杠同样没有可转义字符
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern(r"foo\/bar")
+        self.assertIsInstance(ctx.exception.position, int)
+
+    def test_escaped_backslash_still_compiles_after_fix(self):
+        # `\\` 仍是合法的“字面反斜杠”转义，不能误杀
+        p = compile_pattern("a\\\\b")
+        self.assertFalse(p.matches("a/b"))
+
+    # --- 根因 2：目录规则自身命中必须要 is_dir=True ---
+
+    def test_directory_literal_exact_match_flag_across_entries(self):
+        self.assert_three_entries_agree(["build/"], "build", is_dir=False)
+        self.assert_three_entries_agree(["build/"], "build", is_dir=True)
+        self.assert_three_entries_agree(["build/"], "build/out.o")
+
+    def test_directory_wildcard_exact_match_requires_dir_flag(self):
+        # 含通配符的目录规则走同一条目录语义分支
+        self.assertFalse(compile_pattern("build*/").matches("build0"))
+        self.assertTrue(compile_pattern("build*/").matches("build0",
+                                                            is_dir=True))
+        self.assertTrue(compile_pattern("build*/").matches("build0/x"))
+        self.assert_three_entries_agree(["build*/"], "build0")
+        self.assert_three_entries_agree(["build*/"], "build0", is_dir=True)
+
+    def test_negated_directory_rule_can_reinclude_the_dir_itself(self):
+        rules = ["build/", "!build/"]
+        self.assertFalse(Matcher(rules).ignores("build", is_dir=True))
+        self.assertTrue(Matcher(rules).match("build", is_dir=True).negated)
+        self.assert_three_entries_agree(rules, "build", is_dir=True)
+
+    # --- 根因 3：中间含斜杠的模式锚定到根 ---
+
+    def test_middle_slash_anchors_across_all_entries(self):
+        self.assert_three_entries_agree(["docs/notes/"], "docs/notes/x")
+        self.assert_three_entries_agree(["docs/notes/"], "x/docs/notes/x")
+        self.assert_three_entries_agree(["docs/notes/"], "docs/notes",
+                                        is_dir=True)
+        matcher = Matcher(["docs/notes/"])
+        self.assertTrue(matcher.ignores("docs/notes/x"))
+        self.assertFalse(matcher.ignores("x/docs/notes/x"))
+
+    def test_middle_slash_with_escape_buckets_correctly(self):
+        # f04 现场漏配复现：多段 + 转义的目录规则被错分进非锚定桶
+        self.assert_three_entries_agree([r"dir/a\?b/"], "dir/a?b/f")
+        self.assert_three_entries_agree([r"dir/a\?b/"], "x/dir/a?b/f")
+        matcher = Matcher([r"dir/a\?b/"])
+        self.assertTrue(matcher.ignores("dir/a?b/f"))
+        self.assertFalse(matcher.ignores("x/dir/a?b/f"))
+        self.assertFalse(matcher.ignores("dir/a?b"))
+
+    def test_middle_slash_anchored_file_literal_is_not_basename_rule(self):
+        # 多段字面量文件规则必须按完整路径分桶，而非按 basename
+        p = compile_pattern("src/main.py")
+        self.assertTrue(p.anchored)
+        self.assertTrue(p.matches("src/main.py"))
+        self.assertFalse(p.matches("lib/src/main.py"))
+        self.assert_three_entries_agree(["src/main.py"], "lib/src/main.py")
+
+
 class TestPerformance(unittest.TestCase):
     """500 路径 × 50 规则的批量判定应在很短时间内完成。"""
 

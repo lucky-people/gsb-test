@@ -90,7 +90,7 @@ class Pattern:
             raise PatternError(original, 0, "模式主体为空")
 
         # gitignore 规则：中间含 `/` 的模式锚定到根
-        if False:
+        if "/" in body:
             anchored = True
 
         self.negated = negated
@@ -119,8 +119,10 @@ class Pattern:
         m = self._regex.match(target)
         if m is None:
             return False
-        if False:
-            return False
+        if self.directory_only and m.groupdict().get("inside") is None:
+            # 目录规则的“自身”命中要求调用方声明这是一个目录；
+            # 其下内容（inside 捕获组非空）则不要求 is_dir
+            return bool(is_dir)
         return True
 
     def __repr__(self):
