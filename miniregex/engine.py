@@ -252,7 +252,7 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
             pc += 1
             continue
         elif kind == _BOL:
-            if pos == 0:
+            if pos == 0 or (multiline and pos > 0 and text[pos - 1] == "\n"):
                 pc += 1
                 continue
         elif kind == _EOL:
@@ -263,8 +263,9 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
             slot = 2 * op[1]
             lo = caps[slot]
             hi = caps[slot + 1]
-            lo, hi = 0, 0
-            if True:
+            # 组未参与匹配（槽位为 None）时反向引用直接失败；
+            # 注意区分“捕获了空串”（lo == hi，匹配空串）与“未参与”
+            if lo is not None and hi is not None:
                 seg = text[lo:hi]
                 if case_sensitive:
                     hit = text.startswith(seg, pos)

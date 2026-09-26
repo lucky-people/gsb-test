@@ -143,6 +143,21 @@ class TestDotAndAnchors(unittest.TestCase):
         self.assertEqual(
             compile_pattern(".$", multiline=True).findall("ab\ncd"), ["b", "d"])
 
+    def test_multiline_bol_after_newline(self):
+        # 回归：multiline 下 '^' 必须认每个 '\n' 之后的行首
+        r = compile_pattern("^b", multiline=True)
+        self.assertEqual(r.search("a\nb").span(), (2, 3))
+        self.assertEqual(r.match("a\nb", 2).span(), (2, 3))
+        # 前一字符不是换行则不算行首
+        self.assertIsNone(r.match("ab", 1))
+        # 非 multiline 时 '^' 仍只认整串开头
+        self.assertIsNone(compile_pattern("^b").search("a\nb"))
+
+    def test_multiline_bol_after_trailing_newline(self):
+        # 文本以 '\n' 结尾时，末尾位置也是行首
+        m = compile_pattern("^$", multiline=True).search("a\n")
+        self.assertEqual(m.span(), (2, 2))
+
 
 class TestQuantifiers(unittest.TestCase):
     """语义 4：贪婪与懒惰。"""
@@ -231,6 +246,24 @@ class TestAlternationAndGroups(unittest.TestCase):
         m = compile_pattern(r"(ab)\1", case_sensitive=False).match("aBAb")
         self.assertEqual(m.group(0), "aBAb")
 
+    def test_backref_unmatched_group_via_alternation(self):
+        # 回归：走了另一分支导致组未参与时，反向引用必须失败
+        r = compile_pattern(r"(a|(b))\2")
+        # 走第一分支时组 2 未参与，\2 必须失败
+        self.assertIsNone(r.match("a"))
+        # 走第二分支时组 2 捕获了 'b'，\2 正常比较
+        self.assertEqual(r.match("bb").group(0), "bb")
+
+    def test_backref_forward_reference_fails_at_runtime(self):
+        # 回归：向前引用运行时该组尚未捕获，匹配失败（README 差异表第 7 条）
+        self.assertIsNone(compile_pattern(r"\1(a)").match("aa"))
+
+    def test_backref_empty_capture_matches_empty(self):
+        # 回归：组参与了匹配但捕获为空串，与“未参与”不同，反向引用匹配空串
+        m = compile_pattern(r"(a*)b\1").match("b")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "")
+
 
 class TestCaseInsensitive(unittest.TestCase):
     """语义 7：casefold 比较，捕获保留原文。"""
@@ -299,6 +332,12 @@ class TestPatternErrors(unittest.TestCase):
 
     def test_zero_backref(self):
         self.assert_error("\\0", 0)
+
+    def test_zero_backref_position_in_pattern(self):
+        # 回归：\0 出现在模式中间时，报错位置指向反斜杠本身
+        self.assert_error("ab\\0", 2)
+        self.assert_error("(a)\\0", 3)
+        self.assert_error("\\0(a)", 0)
 
     def test_unsupported_group_syntax(self):
         self.assert_error("(?=a)", 0)

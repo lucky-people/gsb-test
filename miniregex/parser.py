@@ -313,6 +313,10 @@ class _Parser:
         if c in _CLASS_ESCAPES:
             return CharClass(False, (), (), (c,))
         if "0" <= c <= "9":
+            if c == "0":
+                self._error(
+                    "非法反向引用 '\\0'（组号从 1 开始，不支持八进制转义）", pos
+                )
             num = int(c)
             self.backrefs.append((num, pos))
             return BackRef(num)
