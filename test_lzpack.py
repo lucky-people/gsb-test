@@ -22,6 +22,14 @@ def shuffled_feed(decompressor, blob, size):
     return b"".join(out)
 
 
+def skip_header(blob):
+    """跳过头部，返回数据块起始偏移。"""
+    p = 6
+    while blob[p] & 0x80:
+        p += 1
+    return p + 6  # 长度末字节 + 1 字节头部校验 + 4 字节 CRC32
+
+
 class TestAcceptance(unittest.TestCase):
     """验收基线 1~10。"""
 
@@ -160,6 +168,53 @@ class TestFormatBytes(unittest.TestCase):
         self.assertIsNone(read_varint(b"\x80", 0))  # 数据不全
         with self.assertRaises(FormatError):
             read_varint(b"\xff" * 9, 0)             # 超过 9 字节
+
+
+class TestRegressions(unittest.TestCase):
+    """历史缺陷的回归测试，每一条对应一个已修复的根因。"""
+
+    def test_regression_varint_nine_byte_limit(self):
+        # 根因：MAX_VARINT_BYTES 曾被改成 5，超过 35 位的整数无法往返
+        from lzpack.varint import MAX_VARINT_BYTES
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 34, (1 << 35) - 1, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 头部长度字段用到 9 字节时，整体压缩流仍能往返
+        # （此处只验证变长整数本身，真正的超长长度见流级测试）
+        self.assertRaises(FormatError, read_varint, b"\xff" * 9, 0)
+        self.assertRaises(FormatError, read_varint, b"\x80" * 10, 0)
+
+    def test_regression_literal_tag_is_length_minus_one(self):
+        # 根因：编码端发出的字面量标签是“长度”而非“长度-1”，
+        # 解码端按标签+1取字节，整块多吃 1 字节导致 token 错位
+        data = random.Random(2026).randbytes(200)
+        blob = lzpack.compress(data)
+        # 数据不可压缩，全部是字面量块：每个块标签必须 = 字节数 - 1
+        pos = skip_header(blob)
+        total = 0
+        while pos < len(blob):
+            tag = blob[pos]
+            self.assertLess(tag, 0x80, "本数据不应出现匹配 token")
+            cnt = tag + 1
+            self.assertLessEqual(pos + 1 + cnt, len(blob))
+            pos += 1 + cnt
+            total += cnt
+        self.assertEqual(total, len(data))
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_overlapping_match_copy(self):
+        # 根因：解码端用切片取历史数据，偏移 < 匹配长度时取不到新字节，
+        # 连续同一字节 / 重复日志（RLE 式重叠回引）解压结果错位
+        for data in (b"\x00" * 1000, b"a" * 5000, LOG_LINE * 200):
+            blob = lzpack.compress(data)
+            self.assertEqual(lzpack.decompress(blob), data)
+            # 流式任意切分也必须正确
+            self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 7), data)
+        # 偏移 1、长度远大于偏移的极端重叠场景
+        blob = lzpack.compress(b"z" * 40000)
+        self.assertEqual(lzpack.decompress(blob), b"z" * 40000)
 
 
 class TestEdgeCases(unittest.TestCase):

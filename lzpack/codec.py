@@ -98,7 +98,8 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        # 标签 = 长度 - 1：0..127 表示 1..128 字节
+        out.append(len(part) - 1)
         out += part
 
 
@@ -256,7 +257,12 @@ class Decompressor:
                     raise FormatError(
                         self._base + pos,
                         "匹配偏移 %d 超出已解码数据量 %d" % (off, len(out)))
-                seg = bytes(out[len(out) - off:len(out) - off + length])
+                # 偏移可能小于匹配长度（如连续相同字节），属于“重叠回引”：
+                # 必须按解压顺序逐个字节生成，切片只能取到已有的历史数据，
+                # 因此以几何级数从已生成的前缀拷贝来展开 RLE 式重复
+                start = len(out) - off
+                pattern = bytes(out[start:])
+                seg = (pattern * ((length // off) + 1))[:length]
                 pos = r[1]
             out += seg
             produced += seg

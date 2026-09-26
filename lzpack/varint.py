@@ -6,8 +6,8 @@
 
 from .errors import FormatError
 
-#: 单个变长整数最多占用的字节数
-MAX_VARINT_BYTES = 5
+#: 单个变长整数最多占用的字节数（9 字节可承载 63 位）
+MAX_VARINT_BYTES = 9
 
 
 def encode_varint(value):
