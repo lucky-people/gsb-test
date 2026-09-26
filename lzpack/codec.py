@@ -79,6 +79,9 @@ def validate_config(level, window):
     if not MIN_WINDOW <= window <= MAX_WINDOW:
         raise ConfigError(
             "window 只允许 1KB..1MB 之间 2 的幂，收到: %d" % window)
+    if window & (window - 1):
+        raise ConfigError(
+            "window 必须是 2 的幂，收到: %d" % window)
 
 
 # ---------------------------------------------------------------- 头部
@@ -195,7 +198,7 @@ class Decompressor:
         wlog = (meta >> 4) + 10
         if not 1 <= level <= 9:
             raise FormatError(5, "元数据中的 level 非法: %d" % level)
-        if wlog > 19:
+        if wlog > 20:
             raise FormatError(5, "元数据中的 window 非法: 2^%d" % wlog)
         r = read_varint(buf, 6)
         if r is None:
@@ -225,7 +228,7 @@ class Decompressor:
         while pos < n:
             tag = buf[pos]
             if tag < 0x80:
-                cnt = tag + 2
+                cnt = tag + 1
                 if pos + 1 + cnt > n:
                     break  # 字面量块没收全，等更多数据
                 seg = bytes(buf[pos + 1:pos + 1 + cnt])

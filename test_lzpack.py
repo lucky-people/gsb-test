@@ -319,5 +319,60 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestMigrationRegressions(unittest.TestCase):
+    """lzpack-f09 迁移对照暴露的 4 处差异，各补一条回归用例。
+
+    每条用例锁定一个「为什么这么判定」的语义点，防止下次切换再对不上。
+    """
+
+    def test_regression_literal_tag_is_length_minus_one(self):
+        # 差异 1：字面量块的块长换算。格式约定「长度 = 标签 + 1」，
+        # 解码端曾多算一个字节（标签 + 2），导致块边界整体错位。
+        # 手工构造只含一个字面量块的流：标签 0x02 必须恰好解码出 3 字节。
+        data = b"aaa"
+        blob = lzpack.compress(data)
+        self.assertEqual(blob[12:], b"\x02aaa")  # 标签 = 长度 - 1
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 手工拼一个流再解码，直接锁定解码端的换算方向
+        header = codec.build_header(5, codec.crc32(b"hello"), 6, 32768)
+        self.assertEqual(lzpack.decompress(header + b"\x04hello"), b"hello")
+
+    def test_regression_window_1mb_metadata_accepted(self):
+        # 差异 2：头部元数据高 4 位 = log2(window) - 10，window 上限 1MB
+        # 对应 wlog = 20。解码端曾按 wlog > 19 拒绝，把合法的 1MB 窗口
+        # 当成非法值。这里锁定 wlog = 20 必须被接受、wlog = 21 必须被拒。
+        data = LOG_LINE * 100
+        blob = lzpack.compress(data, level=9, window=1 << 20)
+        self.assertEqual(blob[5], ((20 - 10) << 4) | 9)  # 元数据里的 wlog = 20
+        self.assertEqual(lzpack.decompress(blob), data)
+        # wlog = 21（2MB，超出上限）仍必须抛 FormatError
+        mutated = bytearray(blob)
+        mutated[5] = ((21 - 10) << 4) | 9
+        mutated[7] = codec.crc32(bytes(mutated[4:7])) & 0xFF  # 同步头部校验
+        with self.assertRaises(FormatError):
+            lzpack.decompress(bytes(mutated))
+
+    def test_regression_prev_table_index_masked_by_window(self):
+        # 差异 3：哈希链前驱表 prev 是 window 大小的环形数组，
+        # 写入下标必须按 window 取模（i & (window - 1)）。
+        # 未取模时输入长度超过 window 会越界崩溃 / 取到错位的历史位置。
+        # 用远长于 window 的可压缩数据锁定：不崩溃、往返一致、且确实
+        # 用上了跨环形边界的匹配（压缩率明显小于 1）。
+        data = LOG_LINE * 5000  # 约 300KB，远超 window=1024
+        blob = lzpack.compress(data, level=6, window=1024)
+        self.assertLess(len(blob), len(data) * 0.1)
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_window_must_be_power_of_two(self):
+        # 差异 4：window 必须是 2 的幂（prev 环形数组靠位与取模，
+        # 非 2 的幂会让取模结果错位），曾缺失这条校验被静默接受。
+        # 范围内的非 2 的幂必须抛 ConfigError，而不是悄悄压缩。
+        for bad in (1023, 1025, 1536, 3 << 10, (1 << 20) - 1):
+            with self.assertRaises(ConfigError, msg="window=%d" % bad):
+                lzpack.compress(b"x", window=bad)
+            with self.assertRaises(ConfigError, msg="window=%d" % bad):
+                lzpack.Compressor(window=bad)
+
+
 if __name__ == "__main__":
     unittest.main()
