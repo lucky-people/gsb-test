@@ -74,6 +74,25 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
   但 `ignores` 结果为 `False`；
 - `match` 在没有任何规则命中时返回 `None`。
 
+## 迁移回归备忘（pathglob-f02）
+
+灰度对照旧实现时出现过两类系统性差异，已在
+`test_pathglob.py::TestMigrationRegression` 钉死，判定依据如下：
+
+1. **中间含 `/` 的模式锚定到根**。`doc/*.md` 只匹配根下的
+   `doc/a.md`，不匹配 `x/doc/a.md`。依据：gitignore 语义中模式里
+   出现斜杠即表示相对规则文件所在目录，本库只认根相对路径，因此
+   等价于锚定到根。注意结尾的 `/` 是目录标记、不算“中间斜杠”，
+   `build/` 仍是非锚定规则（`src/build/out.o` 也命中）。
+2. **`ignores` 必须尊重 `!` 取反**。最后命中 `!keep.txt` 时
+   `ignores` 为 `False`（重新包含），命中普通规则时才为 `True`。
+   `match` 不受影响的仍返回最后命中的规则本身——`!` 规则没有
+   前置规则时，`match` 返回该规则、`ignores` 返回 `False`。
+
+两条不变量：同一规则同一路径，`Pattern.matches` / `Matcher.match` /
+`Matcher.ignores` 三个入口结论一致；求值顺序永远是
+「最后命中的规则说了算」。
+
 ## 大小写策略
 
 - 默认 `case_sensitive=False`：编译模式时先对模式做 `casefold`，
@@ -158,7 +177,7 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 58 个用例
 python3 bench.py                        # 性能基准
 ```
 

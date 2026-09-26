@@ -416,5 +416,44 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestMigrationRegression(unittest.TestCase):
+    """pathglob-f02 迁移验收的回归用例：每条对应一处曾出现的差异。
+
+    背景：灰度对照时旧实现与 pathglob 出现系统性不一致，根因有两处——
+    1. 中间含 `/` 的模式没有锚定到仓库根（锚定分支被意外禁用）；
+    2. Matcher.ignores 把 `!` 取反规则当成了普通忽略规则，结论整个反过来。
+    以下用例把这两处语义钉死，防止后续改动再次偏离。
+    """
+
+    def test_regression_middle_slash_implies_anchored(self):
+        # 差异 1：`doc/*.md` 这类中间含 `/` 的模式必须锚定到根，
+        # 与 gitignore「模式中含斜杠即相对 .gitignore 所在目录」一致。
+        p = compile_pattern("doc/*.md")
+        self.assertTrue(p.anchored)
+        m = Matcher(["doc/*.md"])
+        # 根下的 doc/a.md 命中；更深处的 x/doc/a.md 不命中
+        self.assertTrue(m.ignores("doc/a.md"))
+        self.assertFalse(m.ignores("x/doc/a.md"))
+        # 三个入口结论一致
+        self.assertEqual(p.matches("x/doc/a.md"), m.match("x/doc/a.md") is not None)
+        # 结尾 `/` 是目录标记，不触发锚定：`build/` 仍是非锚定规则
+        self.assertFalse(compile_pattern("build/").anchored)
+        self.assertTrue(Matcher(["build/"]).ignores("src/build/out.o"))
+
+    def test_regression_ignores_respects_negation(self):
+        # 差异 2：最后命中的是 `!` 规则时 ignores 必须为 False（重新包含），
+        # 是普通规则时才为 True。
+        m = Matcher(["*.txt", "!keep.txt"])
+        self.assertTrue(m.ignores("a.txt"))
+        self.assertFalse(m.ignores("keep.txt"))
+        # `!` 规则命中时 match 仍返回该规则本身，只是 ignores 取反
+        matched = m.match("keep.txt")
+        self.assertIsNotNone(matched)
+        self.assertTrue(matched.negated)
+        # 只有 `!` 规则时：命中但结论为「不忽略」
+        only_neg = Matcher(["!foo.txt"])
+        self.assertFalse(only_neg.ignores("foo.txt"))
+
+
 if __name__ == "__main__":
     unittest.main()

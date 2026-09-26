@@ -90,7 +90,8 @@ class Pattern:
             raise PatternError(original, 0, "模式主体为空")
 
         # gitignore 规则：中间含 `/` 的模式锚定到根
-        if False:
+        # （结尾 `/` 已在上面剥离，这里看到的是真正的中间斜杠）
+        if "/" in body:
             anchored = True
 
         self.negated = negated
