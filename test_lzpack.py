@@ -319,5 +319,51 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """lzpack-f02 两条根因的回归测试。"""
+
+    @staticmethod
+    def _data_offset(blob):
+        """跳过头部，返回数据块（token 序列）的起始偏移。"""
+        p = 6
+        while blob[p] & 0x80:  # 长度字段的 varint
+            p += 1
+        return p + 6  # 长度字段末字节 + 1 字节头部校验 + 4 字节 CRC32
+
+    def test_regression_prev_table_ring_index(self):
+        # 根因 1：prev 前驱表必须按 window 取模（环形数组）。
+        # 旧实现用绝对下标 prev[i]，数据长度超过 window 即 IndexError；
+        # 即使不越界，链上也会取到错位的历史位置。
+        rng = random.Random(20260926)
+        block = bytes(rng.choices(range(256), k=200))
+        filler = bytes(rng.choices(range(256), k=3000))
+        # 总长 > 3 * window(1024)，强制 prev 环形数组绕圈；
+        # 尾部重复开头内容，绕圈后的链仍要给出合法匹配。
+        data = block + filler + block + filler[:500] + block
+        self.assertGreater(len(data), 3 * 1024)
+        tokens = list(find_tokens(data, 9, 1024))  # 旧实现在此 IndexError
+        for token in tokens:
+            if token[0] == "m":
+                self.assertGreaterEqual(token[1], 1)
+                self.assertLessEqual(token[1], 1024)
+        blob = lzpack.compress(data, level=9, window=1024)
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_match_tag_stores_length_minus_3(self):
+        # 根因 2：匹配标签存的是 长度 - MIN_MATCH，不是长度本身。
+        # 长度 3..129 -> 标签 0x80..0xFE；长度 >= 130 -> 0xFF + varint(长度 - 130)。
+        cases = [
+            (b"x" * 4, b"\x00x\x80\x00"),          # 长度 3   -> 0x80
+            (b"x" * 130, b"\x00x\xfe\x00"),        # 长度 129 -> 0xFE
+            (b"x" * 131, b"\x00x\xff\x00\x00"),    # 长度 130 -> 0xFF + varint(0)
+            (b"x" * 200, b"\x00x\xff\x45\x00"),    # 长度 199 -> 0xFF + varint(69)
+        ]
+        for data, expect_tokens in cases:
+            blob = lzpack.compress(data, level=1, window=1024)
+            self.assertEqual(blob[self._data_offset(blob):], expect_tokens,
+                             "数据 %d 字节的 token 编码" % len(data))
+            self.assertEqual(lzpack.decompress(blob), data)
+
+
 if __name__ == "__main__":
     unittest.main()

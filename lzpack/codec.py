@@ -109,7 +109,7 @@ def encode_tokens(data, level, window, out):
             _emit_literals(out, token[1])
         else:
             _, off, length = token
-            code = length
+            code = length - MIN_MATCH
             if code < 0x7F:
                 out.append(0x80 | code)
             else:
