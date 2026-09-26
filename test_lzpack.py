@@ -319,5 +319,57 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressionLzpackF08(unittest.TestCase):
+    """lzpack-f08 批次四类缺陷的回归用例。
+
+    缺陷 1：字面量块解码时长度标签差一（cnt = tag + 2）。
+    缺陷 2：变长整数字节上限被改小（MAX_VARINT_BYTES = 5）。
+    缺陷 3：字面量块编码时块长多算一个字节（tag = len 而非 len - 1）。
+    缺陷 4：变长整数解码位移步长写错（shift += 8 而非 7）。
+    """
+
+    def test_literal_block_tag_is_length_minus_one(self):
+        # 缺陷 3：128 字节字面量块的标签必须是 0x7F（长度 - 1）
+        data = bytes(range(128))  # 字节互不相同，保证不会拆出匹配
+        blob = lzpack.compress(data)
+        hdr = 4 + 2 + len(encode_varint(len(data))) + 1 + 4  # 头部长度
+        self.assertEqual(blob[hdr], 0x7F)
+        self.assertEqual(blob[hdr + 1:], data)
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_literal_block_decode_consumes_exact_length(self):
+        # 缺陷 1：解码端按 tag + 1 消费，整块不多吃一字节；
+        # 两个相邻字面量块必须各自对齐，否则第二块会被错位解析
+        data = bytes(range(200))  # 128 + 72 两个字面量块，无内部匹配
+        blob = lzpack.compress(data)
+        hdr = 4 + 2 + len(encode_varint(len(data))) + 1 + 4
+        self.assertEqual(blob[hdr], 0x7F)
+        self.assertEqual(blob[hdr + 1 + 128], 71)  # 第二块标签 = 72 - 1
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 流式逐字节喂入也必须逐字节相同
+        self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 1), data)
+
+    def test_varint_max_bytes_is_nine(self):
+        # 缺陷 2：上限恢复为 9 字节，需要 6~9 字节的长整数必须能往返
+        from lzpack.varint import MAX_VARINT_BYTES
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 35, 1 << 40, 1 << 56, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 9 字节全带续位必须报 FormatError，而不是静默截断
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 9, 0)
+
+    def test_varint_shift_step_is_seven(self):
+        # 缺陷 4：多字节数值按 7 位步长拼接，逐位模式必须精确还原
+        for v in (0b1, 0x80, 0x3FFF, 0x123456, 1 << 21, 0xDEADBEEF, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 已知字节布局：0x80 0x01 表示 128，而非 8 位移步长下的其他值
+        self.assertEqual(read_varint(b"\x80\x01", 0), (128, 2))
+        self.assertEqual(read_varint(b"\xff\x7f", 0), (0x3FFF, 2))
+
+
 if __name__ == "__main__":
     unittest.main()
