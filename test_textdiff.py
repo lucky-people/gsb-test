@@ -230,6 +230,37 @@ class UnifiedOrderingTests(unittest.TestCase):
             textdiff.apply("a\r\nb1\r\nb2\r\n", patch), "a\r\nB\r\n")
 
 
+class HunkMergeBoundaryTests(unittest.TestCase):
+    """hunk 合并边界：间隔公共行 <= 2*context 合并，>= 2*context+1 拆开。"""
+
+    @staticmethod
+    def _make_pair(gap, context):
+        # 两处单行替换，中间夹 gap 行公共上下文，两端再各留 context 行。
+        pad = [f"p{i}" for i in range(context)]
+        mid = [f"m{i}" for i in range(gap)]
+        a_rows = pad + ["X1"] + mid + ["X2"] + pad
+        b_rows = pad + ["Y1"] + mid + ["Y2"] + pad
+        a = "".join(row + "\n" for row in a_rows)
+        b = "".join(row + "\n" for row in b_rows)
+        return a, b
+
+    def test_gap_exactly_2x_context_merges_into_one_hunk(self):
+        # 回归：间隔正好 2*context 行公共上下文时必须合并为一个 hunk。
+        for context in (0, 1, 3, 5):
+            a, b = self._make_pair(2 * context, context)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 1, msg=context)
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+    def test_gap_2x_context_plus_one_splits_into_two_hunks(self):
+        # 边界另一侧：间隔 2*context+1 行公共上下文时必须拆开。
+        for context in (0, 1, 3, 5):
+            a, b = self._make_pair(2 * context + 1, context)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 2, msg=context)
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+
 class ApplyTests(unittest.TestCase):
     def test_roundtrip_varied_contexts(self):
         cases = [
@@ -356,6 +387,32 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(result.conflicts[0].ours_lines, ["B1\n"])
         self.assertEqual(result.conflicts[1].theirs_lines, ["D2\n"])
         self.assertEqual(result.merged.count("<<<<<<<"), 2)
+
+    def test_conflict_range_is_one_based_half_open_over_base(self):
+        # 回归：base_start/base_end 为 1 基半开区间，按它切 base 原文
+        # 正好得到冲突覆盖的祖先行。
+        base = "1\n2\n3\n4\n5\n"
+        result = textdiff.merge(base, "1\n2\nA\n4\n5\n", "1\n2\nB\n4\n5\n")
+        conflict = result.conflicts[0]
+        base_rows = base.splitlines(keepends=True)
+        covered = base_rows[conflict.base_start - 1:conflict.base_end - 1]
+        self.assertEqual(covered, ["3\n"])
+
+        # 删除 vs 修改的冲突同样覆盖被改动的祖先行区间。
+        result = textdiff.merge("a\nb\nc\n", "a\nc\n", "a\nB\nc\n")
+        conflict = result.conflicts[0]
+        base_rows = "a\nb\nc\n".splitlines(keepends=True)
+        covered = base_rows[conflict.base_start - 1:conflict.base_end - 1]
+        self.assertEqual(covered, ["b\n"])
+
+    def test_pure_insert_conflict_range_slices_to_empty(self):
+        # 纯插入冲突：lo == hi 为插入点，按区间切片为空。
+        base = "a\nb\n"
+        result = textdiff.merge(base, "a\nI\nb\n", "a\nJ\nb\n")
+        conflict = result.conflicts[0]
+        base_rows = base.splitlines(keepends=True)
+        covered = base_rows[conflict.base_start - 1:conflict.base_end - 1]
+        self.assertEqual(covered, [])
 
 
 class RandomRoundTripTests(unittest.TestCase):

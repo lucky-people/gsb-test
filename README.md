@@ -111,11 +111,12 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
 - 文件头固定为 `--- a` / `+++ b`（本引擎只处理文本内容，没有真实文件名）；
 - hunk 头形如 `@@ -旧始,旧计 +新始,新计 @@`，起始号 1 基、计数为 1 时省略；
   纯插入 hunk 旧侧为 `0,0`，纯删除 hunk 新侧为 `0,0`；
-- 每个 hunk 两端最多带 `context` 行上下文；两个改动之间放不下
-  `2*context+1` 行公共上下文时合并为同一 hunk；
-- 同一改动块（replace）内**先输出全部 `-` 删除行、再输出全部 `+`
-  插入行**，与 GNU diff / difflib 的形态一致；不同改动块之间保持
-  文档顺序；在唯一行文本上与
+- 每个 hunk 两端最多带 `context` 行上下文；两个改动之间的公共上下文
+  **少于 `2*context+1` 行（即不超过 `2*context` 行）时合并为同一 hunk，
+  正好 `2*context+1` 行时拆开**（GNU 规则）；
+- 同一改动块（replace）内**严格先输出全部 `-` 删除行、再输出全部 `+`
+  插入行**（删除先于插入，绝不交错），与 GNU diff / difflib 的形态一致；
+  不同改动块之间保持文档顺序；在唯一行文本上与
   `difflib.unified_diff(fromfile="a", tofile="b")` 逐字节一致；
 - 两份输入完全相同时返回**空字符串**；
 - 末尾**没有换行**的行在 `-`/`+`/空格行之后输出
@@ -155,8 +156,14 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
 - 返回 `MergeResult`：`merged`（合并文本）、`conflicts`（`Conflict` 列表）、
   `has_conflicts`；
 - 每个 `Conflict` 带可定位回**共同祖先原文行号**的区间
-  `base_start/base_end`（1 基半开；纯插入点冲突用插入点位置，0=文件开头、
-  N=第 N 行之后），以及 `ours_lines` / `theirs_lines`（两侧完整行文本）、
+  `base_start/base_end`，约定为 **1 基半开**：
+  - 替换/删除冲突：若冲突覆盖祖先的 0 基半开区间 `[lo, hi)`，
+    则报告 `[lo+1, hi+1)`，即被改动祖先行的 1 基行号范围；
+  - 纯插入冲突（`lo == hi`）：记录插入点位置本身，
+    `0` 表示文件开头、`N` 表示第 N 行之后；
+  - 不变量：用 base 原文按 `[base_start-1, base_end-1)` 切片，
+    正好得到冲突覆盖的祖先行（纯插入冲突为空切片）；
+  以及 `ours_lines` / `theirs_lines`（两侧完整行文本）、
   来源标签与 `source` 属性；
 - 若冲突前最后一行没有换行，引擎会在冲突标记前补一个换行，
   保证 `<<<<<<<` 等标记始终另起一行、不与正文粘连。

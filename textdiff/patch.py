@@ -45,10 +45,10 @@ def _stream_edit(edit: Edit, a: list[Line], b: list[Line]) -> list[_Op]:
         return [("+", b[idx], None, idx)
                 for idx in range(edit.b_start, edit.b_end)]
 
-    ops: list[_Op] = [("+", b[idx], None, idx)
-                      for idx in range(edit.b_start, edit.b_end)]
-    ops.extend(("-", a[idx], idx, None)
-               for idx in range(edit.a_start, edit.a_end))
+    ops: list[_Op] = [("-", a[idx], idx, None)
+                      for idx in range(edit.a_start, edit.a_end)]
+    ops.extend(("+", b[idx], None, idx)
+               for idx in range(edit.b_start, edit.b_end))
     return ops
 
 
@@ -57,7 +57,8 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
     """按 GNU unified 规则把编辑块分组为若干 hunk。
 
     每个非 equal 编辑块（含其内部相等行）整体属于某个 hunk；
-    两个非 equal 块之间若放不下 ``2*context`` 行纯上下文则合并；
+    两个非 equal 块之间若间隔公共行少于 ``2*context+1`` 行则合并，
+    正好 ``2*context+1`` 行时拆开（GNU / difflib 规则）；
     hunk 两端各带至多 context 行上下文；起始行号与计数由实际正文统计。
     """
     changed_indexes = [idx for idx, edit in enumerate(edits)
@@ -76,9 +77,10 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
             continue
         gap_edit = edits[prev_change_idx + 1]
         # 中间没有 equal（两个改动块相邻）必然合并；
-        # 间隔相等行不足「两端各 context 行 + 至少 1 个公共行」也合并。
+        # 间隔公共行不足「两端各 context 行 + 至少 1 个公共行」也合并，
+        # 即间隔 <= 2*context 行时合并、>= 2*context+1 行时拆开。
         if gap_edit.tag != "equal" or \
-                (gap_edit.a_end - gap_edit.a_start) < 2 * context:
+                (gap_edit.a_end - gap_edit.a_start) <= 2 * context:
             groups[-1].append(edit_idx)
         else:
             groups.append([edit_idx])

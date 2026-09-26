@@ -156,10 +156,15 @@ def merge(base: str, ours: str, theirs: str,
                 output.append(_marker(f">>>>>>> {theirs_label}"))
                 # 1 基半开区间：替换/删除 [lo,hi) -> [lo+1, hi+1)；
                 # 纯插入 lo == hi 时记录插入点（0=文件开头，N=第 N 行后）。
-                base_start = lo
+                # 不变量：base 原文按 [base_start-1, base_end-1) 切片，
+                # 正好是冲突覆盖的祖先行（纯插入冲突为空切片）。
+                if lo == hi:
+                    base_start, base_end = lo, hi
+                else:
+                    base_start, base_end = lo + 1, hi + 1
                 conflicts.append(Conflict(
                     base_start=base_start,
-                    base_end=hi,
+                    base_end=base_end,
                     ours_lines=[line.render() for line in ours_block],
                     theirs_lines=[line.render() for line in theirs_block],
                     ours_label=ours_label,
