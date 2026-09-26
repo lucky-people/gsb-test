@@ -36,9 +36,12 @@ def _translate_class(content):
             i += 2
             continue
         if c in ("\\", "]"):
+            # 正则字符类里有特殊含义、必须转义的字符
             items.append("\\" + c)
         else:
-            items.append("\\" + c)
+            # 其余字符原样保留：`-` 才能构成 [a-z] 区间，
+            # 普通字母也不会被误转义成 \a、\d 这类正则预定义类
+            items.append(c)
         i += 1
     inner = "".join(items)
     if negated:
@@ -149,8 +152,8 @@ def translate(body, anchored, directory_only, original, offset):
                 # 结尾 `/**`：匹配自身及下级所有内容
                 parts.append("(?:/.*)?" if need_slash else ".*")
             else:
-                # 中间 `/**/`：匹配零层或多层目录
-                parts.append("/.*/" if need_slash else ".*/")
+                # 中间 `/**/`：匹配零层或多层目录（a/**/b 也能命中 a/b）
+                parts.append("/(?:.*/)?" if need_slash else "(?:.*/)?")
                 need_slash = False
             continue
         seg_re, seg_lit = _translate_segment(seg, original, offset + segpos)

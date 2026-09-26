@@ -383,6 +383,53 @@ class TestPatternErrors(unittest.TestCase):
         self.assertTrue(p.case_sensitive)
 
 
+class TestReconciliationRegression(unittest.TestCase):
+    """上线前与参考实现逐条对账发现的四类偏差的回归测试。
+
+    每条都直接复现对账时的输入形态，并同时校验
+    `Pattern.matches` / `Matcher.match` / `Matcher.ignores` 三个入口。
+    """
+
+    def assert_consistent(self, pattern, path, is_dir=False, expected=None):
+        """同一规则、同一路径，三个入口结论必须一致。"""
+        got = compile_pattern(pattern).matches(path, is_dir=is_dir)
+        if expected is not None:
+            self.assertEqual(got, expected)
+        matcher = Matcher([pattern])
+        self.assertEqual(matcher.match(path, is_dir=is_dir) is not None, got)
+        self.assertEqual(matcher.ignores(path, is_dir=is_dir), got)
+
+    def test_range_dash_is_not_degraded_to_literal(self):
+        # 对账样本：[0-9] 区间曾被翻译成 [0\-9]，退化成三个字面字符
+        p = compile_pattern("build-[0-9].log", case_sensitive=True)
+        self.assertTrue(p.matches("build-7.log"))
+        self.assertFalse(p.matches("build--.log"))  # `-` 自身不在区间内
+        self.assertFalse(p.matches("build-a.log"))
+        self.assert_consistent("build-[0-9].log", "build-3.log", expected=True)
+        self.assert_consistent("build-[0-9].log", "build--.log", expected=False)
+
+    def test_middle_double_star_allows_zero_directories(self):
+        # 对账样本：src/**/test_*.py 匹配不到 src/test_main.py（零层目录）
+        self.assert_consistent(
+            "src/**/test_*.py", "src/test_main.py", expected=True)
+        self.assert_consistent(
+            "src/**/test_*.py", "src/a/b/test_main.py", expected=True)
+        self.assert_consistent(
+            "src/**/test_*.py", "src/a/b/main.py", expected=False)
+
+    def test_directory_rule_self_match_requires_dir_flag(self):
+        # 对账样本：build/ 在 is_dir=False 时把 build 自身也算命中
+        self.assert_consistent("build/", "build", is_dir=False, expected=False)
+        self.assert_consistent("build/", "build", is_dir=True, expected=True)
+        self.assert_consistent("build/", "build/out.o", expected=True)
+
+    def test_middle_slash_literal_anchors_to_root(self):
+        # 对账样本：含中间斜杠的字面量规则 a/b 误中 x/a/b
+        self.assert_consistent("a/b", "a/b", expected=True)
+        self.assert_consistent("a/b", "x/a/b", expected=False)
+        self.assert_consistent("doc/api.md", "x/doc/api.md", expected=False)
+
+
 class TestPerformance(unittest.TestCase):
     """500 路径 × 50 规则的批量判定应在很短时间内完成。"""
 

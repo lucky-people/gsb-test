@@ -74,6 +74,15 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
   但 `ignores` 结果为 `False`；
 - `match` 在没有任何规则命中时返回 `None`。
 
+## 判定口径（与参考实现对账的基准）
+
+同一条规则、同一个路径，`Pattern.matches`、`Matcher.match`、`Matcher.ignores` 三个入口的结论必须一致；出现分歧时以本节为准：
+
+- **字符类**：`[a-z]` 是区间（`-` 原样保留、不转义），只匹配区间内单个字符，不匹配字面 `-`；`[!a-z]` / `[^a-z]` 取反且同样不匹配 `/`；`]` 作首字符按字面处理（`[]a]` 匹配 `]` 或 `a`）。
+- **`/**/`**：中间的 `**` 段匹配零层或多层目录，`a/**/b` 同时命中 `a/b`、`a/x/b`、`a/x/y/b`；结尾 `a/**` 额外匹配 `a` 自身；连续的 `**` 段折叠为一个。
+- **目录规则**（`foo/`）：命中 `foo` 自身要求 `is_dir=True`；命中下级内容（`foo/bar`）时 `is_dir` 任意。即 `is_dir=False` 时目录规则不会把目录自身算命中。
+- **锚定**：前导 `/` 或模式中间含 `/` 都锚定到根——`doc/*.md` 与字面量 `a/b` 都不匹配 `x/doc/a.md`、`x/a/b`；不含 `/` 的模式按 basename 在任意深度匹配。
+
 ## 大小写策略
 
 - 默认 `case_sensitive=False`：编译模式时先对模式做 `casefold`，
@@ -158,7 +167,7 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 60 个用例
 python3 bench.py                        # 性能基准
 ```
 

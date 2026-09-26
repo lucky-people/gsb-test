@@ -90,7 +90,7 @@ class Pattern:
             raise PatternError(original, 0, "模式主体为空")
 
         # gitignore 规则：中间含 `/` 的模式锚定到根
-        if False:
+        if "/" in body:
             anchored = True
 
         self.negated = negated
@@ -119,7 +119,8 @@ class Pattern:
         m = self._regex.match(target)
         if m is None:
             return False
-        if False:
+        if self.directory_only and not is_dir and m.group("inside") is None:
+            # 目录规则命中的是目录自身（而非其下内容）时，要求 is_dir=True
             return False
         return True
 
