@@ -7,7 +7,7 @@
     repeat     = atom quantifier?
     quantifier = "*" | "+" | "?" | "{" n ( "," m? )? "}" ，可再跟 "?" 表示懒惰
     atom       = literal | "." | escape | class | group | 锚点
-    escape     = "\\" ( "d" | "D" | "w" | "W" | "s" | "S" | 数字 | 任意标点 )
+    escape     = "\\" ( "d" | "D" | "w" | "W" | "s" | "S" | 1..9 | 任意标点 )
     class      = "[" "^"? item+ "]"     item = char | char "-" char
     group      = "(" ( "?:" )? pattern ")"
     锚点        = "^" | "$"
@@ -314,6 +314,12 @@ class _Parser:
             return CharClass(False, (), (), (c,))
         if "0" <= c <= "9":
             num = int(c)
+            if num == 0:
+                self._error(
+                    "非法反向引用 '\\0'：反向引用编号必须是 \\1-\\9"
+                    "（本实现不支持八进制转义）",
+                    pos,
+                )
             self.backrefs.append((num, pos))
             return BackRef(num)
         if c.isalnum():

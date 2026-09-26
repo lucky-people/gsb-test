@@ -356,5 +356,78 @@ class TestMisc(unittest.TestCase):
         self.assertIn("aa", repr(m))
 
 
+class TestRegressionF04(unittest.TestCase):
+    """f04 评审三条根因的回归测试（每条根因独立于原有验收用例）。"""
+
+    # ---- 根因 1：\0 是非法反向引用，必须报 PatternError ----
+
+    def test_zero_backref_error_position_and_attrs(self):
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern(r"(a)\0")
+        err = ctx.exception
+        self.assertEqual(err.position, 3)
+        self.assertEqual(err.pattern, r"(a)\0")
+        self.assertIn("反向引用", err.message)
+
+    def test_zero_backref_amid_pattern(self):
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern(r"ab\0cd")
+        self.assertEqual(ctx.exception.position, 2)
+
+    def test_backref_double_digit_parsed_as_backref_then_digit(self):
+        # 编号只支持单数字：\10 解析为 \1 后接字面量 '0'，而非编号 10
+        self.assertEqual(
+            compile_pattern(r"(a)\10").match("aa0").group(0), "aa0")
+
+    # ---- 根因 2：反向引用指向未参与匹配的组必须判失败 ----
+
+    def test_backref_forward_reference_unmatched_fails(self):
+        # 允许前向引用，但运行时该组未捕获即失败（见 README 与 re 差异第 7 条）
+        self.assertIsNone(compile_pattern(r"\1(a)").match("a"))
+
+    def test_backref_losing_alternation_branch_fails(self):
+        pattern = compile_pattern(r"(?:(a)|b)\1")
+        self.assertIsNone(pattern.match("b"))
+        self.assertEqual(pattern.match("aa").group(0), "aa")
+
+    def test_backref_empty_capture_is_still_participating(self):
+        # 参与匹配但捕获空串 ≠ 未参与匹配：空串反向引用应当成功
+        self.assertEqual(compile_pattern(r"(a*)\1").match("").group(0), "")
+        self.assertEqual(
+            compile_pattern(r"(a*)\1").match("aaaa").group(0), "aaaa")
+
+    def test_backref_uses_capture_at_match_time(self):
+        # 重复组上的反向引用取最后一次捕获；捕获长度不足时经回溯判失败
+        self.assertEqual(compile_pattern(r"(a)+\1").match("aa").group(0), "aa")
+        self.assertIsNone(compile_pattern(r"(a)+\1").match("a"))
+
+    # ---- 根因 3：multiline 下 ^ 必须在每个 \n 之后成立 ----
+
+    def test_caret_after_every_newline(self):
+        r = compile_pattern("^x", multiline=True)
+        self.assertEqual(
+            [m.start() for m in r.finditer("a\nx\nx")], [2, 4])
+
+    def test_caret_not_at_non_line_start_multiline(self):
+        # multiline 只放宽到行首，行内位置仍然不认 ^
+        self.assertIsNone(compile_pattern("^x", multiline=True).search("ax"))
+
+    def test_caret_after_trailing_newline(self):
+        r = compile_pattern("^", multiline=True)
+        self.assertEqual([m.start() for m in r.finditer("a\n")], [0, 2])
+
+    def test_caret_non_multiline_only_text_start(self):
+        self.assertIsNone(compile_pattern("^x").search("a\nx"))
+
+    def test_multiline_line_anchors_findall(self):
+        text = "ab\ncd\nef"
+        self.assertEqual(
+            compile_pattern(r"^\w+", multiline=True).findall(text),
+            ["ab", "cd", "ef"])
+        self.assertEqual(
+            compile_pattern(r"\w+$", multiline=True).findall(text),
+            ["ab", "cd", "ef"])
+
+
 if __name__ == "__main__":
     unittest.main()
