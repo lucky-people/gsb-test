@@ -41,7 +41,7 @@ concat      = repeat*
 repeat      = atom quantifier?
 quantifier  = "*" | "+" | "?" | "{" n ( "," m? )? "}"   每个量词后可跟 "?" 表示懒惰
 atom        = literal | "." | escape | class | group | 锚点
-escape      = "\" ( "d" | "D" | "w" | "W" | "s" | "S" | 数字 | 任意标点 )
+escape      = "\" ( "d" | "D" | "w" | "W" | "s" | "S" | 非零数字 | 任意标点 )
 class       = "[" "^"? item+ "]"     item = char | char "-" char
 group       = "(" ( "?:" )? pattern ")"
 锚点         = "^" | "$"

@@ -356,5 +356,30 @@ class TestMisc(unittest.TestCase):
         self.assertIn("aa", repr(m))
 
 
+class TestRegressionF05(unittest.TestCase):
+    """工单 miniregex-f05 的回归测试：非法反向引用、未参与组、裸量词。"""
+
+    def test_zero_backref_mid_pattern(self):
+        # \0 在模式中间同样报错，位置指向 '\' 本身
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("ab\\0")
+        self.assertEqual(ctx.exception.position, 2)
+        self.assertEqual(ctx.exception.pattern, "ab\\0")
+
+    def test_forward_backref_fails_at_runtime(self):
+        # 前向引用（\1(a)）允许编译，但运行时该组尚未捕获，匹配失败
+        self.assertIsNone(compile_pattern(r"\1(a)").match("aa"))
+        self.assertIsNone(compile_pattern(r"\1(a)").search("aa"))
+
+    def test_quantifier_without_atom_in_group(self):
+        # 裸量词在分组内部、分支末尾同样报错，位置精确到量词字符
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("(*)")
+        self.assertEqual(ctx.exception.position, 1)
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("(a)|+")
+        self.assertEqual(ctx.exception.position, 4)
+
+
 if __name__ == "__main__":
     unittest.main()
