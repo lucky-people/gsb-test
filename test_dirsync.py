@@ -155,6 +155,19 @@ class TestManifestJson(TempDirCase):
         with self.assertRaises(ManifestError):
             Manifest.from_json(text)
 
+    def test_backslash_rejected_at_construction(self):
+        # 回归：反斜杠路径必须在构造清单时就被拦下，而不是静默进清单
+        from dirsync.paths import validate_relpath
+        with self.assertRaises(ManifestError):
+            validate_relpath("a\\b")
+        with self.assertRaises(ManifestError):
+            Manifest([ManifestEntry("a\\b", "dir")])
+        with self.assertRaises(ManifestError):
+            Manifest([ManifestEntry("..\\up", "dir")])
+        # 正斜杠的合法路径不受影响
+        m = Manifest([ManifestEntry("a/b", "dir")])
+        self.assertEqual(m.paths(), ["a/b"])
+
 
 class TestIgnoreRules(TempDirCase):
     def setUp(self):
@@ -319,6 +332,51 @@ class TestApply(TempDirCase):
         r = apply(self.src, m2, self.dst)
         self.assertIn("a.txt", r.updated)
         self.assertEqual(verify(self.dst, m2), [])
+
+    def test_apply_reads_existing_target(self):
+        # 回归：apply 必须读取目标目录现状，而不是当成空目录全量重建
+        apply(self.src, self.manifest, self.dst)
+        # 记录已同步文件的 inode，内容未变的文件不应被重写
+        inode_before = os.stat(self.p("dst/a.txt")).st_ino
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 4)
+        self.assertEqual(os.stat(self.p("dst/a.txt")).st_ino, inode_before)
+
+    def test_kind_switch_dir_to_file(self):
+        # 回归：dir -> file 的 kind 切换同样依赖目标现状快照
+        apply(self.src, self.manifest, self.dst)
+        os.unlink(self.p("src/sub/b.txt"))
+        os.rmdir(self.p("src/sub"))
+        make_file(self.p("src/sub"), b"now-a-file")
+        m2 = snapshot(self.src)
+        r = apply(self.src, m2, self.dst)
+        self.assertIn("sub", r.updated)
+        self.assertEqual(verify(self.dst, m2), [])
+
+    def test_prune_false_keeps_extra_subtree(self):
+        # 回归：prune=False 时目标里多余的文件和整棵目录都要保留
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("dst/extra/nested/deep.txt"), b"deep")
+        make_file(self.p("dst/top.txt"), b"top")
+        r = apply(self.src, self.manifest, self.dst, prune=False)
+        self.assertEqual(r.deleted, [])
+        self.assertTrue(os.path.isfile(self.p("dst/extra/nested/deep.txt")))
+        self.assertTrue(os.path.isfile(self.p("dst/top.txt")))
+        # 连续两次 prune=False 仍然保留，且第二次幂等
+        r2 = apply(self.src, self.manifest, self.dst, prune=False)
+        self.assertEqual(r2.deleted, [])
+        self.assertEqual(r2.created, [])
+        self.assertEqual(r2.updated, [])
+        self.assertTrue(os.path.isfile(self.p("dst/extra/nested/deep.txt")))
+        # 但 prune=True 时仍会被清理
+        r3 = apply(self.src, self.manifest, self.dst, prune=True)
+        self.assertEqual(r3.deleted, ["extra", "extra/nested",
+                                      "extra/nested/deep.txt", "top.txt"])
+        self.assertFalse(os.path.exists(self.p("dst/extra")))
+        self.assertFalse(os.path.exists(self.p("dst/top.txt")))
 
 
 class TestVerify(TempDirCase):
