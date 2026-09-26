@@ -127,11 +127,33 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 说明：随机数据压缩率 > 100% 即字面量块开销（< 1%）；解压峰值内存
 主要是已解压输出缓冲（匹配回引需要历史数据）。
 
+## 验收判定口径
+
+与参考实现对账 / 上线前验收按以下口径判定，均有对应测试：
+
+- **往返一致**：`decompress(compress(x)) == x`；一次性 `compress/decompress`
+  与流式 `Compressor`/`Decompressor`（任意分块喂入）的输出逐字节相同；
+- **损坏必报错**：压缩流任意一个字节被翻转、或在任意长度被截断，
+  `decompress` 必须抛 `FormatError`（带 `offset` 与中文说明），
+  绝不静默返回半截数据；
+- **窗口约束**：匹配偏移必须落在头部声明的 window 内（允许等于 window），
+  重复间隔超过 window 的内容只能退化为字面量；解压端按头部声明的
+  window 校验偏移，越界即 `FormatError`；
+- **参数口径**：`level` 仅允许 1..9，`window` 仅允许 1KB..1MB 之间 2 的幂，
+  越界抛 `ConfigError`（不是延迟到压缩中途才失败）；
+- **性能口径**：`bench.py` 三组数据的压缩率不低于历史基线
+  （1 MB 随机 < 101%、1 MB 重复 ≈ 0.16%、10 MB 日志 ≈ 0.11%）；
+  压缩耗时为 O(n)，以 `test_5_compress_not_quadratic` 为回归门槛。
+
 ## 运行测试
 
 ```bash
 python3 -m unittest test_lzpack -v
 ```
+
+共 33 条：30 条验收基线与边界用例，外加 3 条对账回归用例
+（`TestReconciliationRegressions`：level 上界、前驱表窗口取模、
+字面量块长换算）。
 
 ## 文件结构
 
@@ -140,5 +162,5 @@ python3 -m unittest test_lzpack -v
 - `lzpack/lz77.py`：哈希链匹配查找（token 生成）
 - `lzpack/varint.py`：LEB128 变长整数
 - `lzpack/errors.py`：`FormatError` / `ConfigError`
-- `test_lzpack.py`：unittest，覆盖验收基线与全部边界
+- `test_lzpack.py`：unittest，覆盖验收基线、全部边界与对账回归
 - `bench.py`：性能与内存测量

@@ -319,5 +319,47 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestReconciliationRegressions(unittest.TestCase):
+    """批处理对账发现的三类缺陷的回归测试（2026-09 上线前对账）。"""
+
+    def test_regression_level_upper_bound(self):
+        # level 上界曾放宽到 10：越界级别不再报 ConfigError，
+        # 直到 lz77 查链深表时才 KeyError。口径：level 只允许 1..9。
+        for bad in (10, 11, 100):
+            with self.assertRaises(ConfigError):
+                lzpack.compress(b"x", level=bad)
+            with self.assertRaises(ConfigError):
+                lzpack.Compressor(level=bad)
+        for good in (1, 9):
+            lzpack.compress(b"x", level=good)
+            self.assertTrue(lzpack.Compressor(level=good).finish())
+
+    def test_regression_prev_table_masked(self):
+        # 哈希链前驱表下标曾未按窗口取模：数据长度超过 window 时
+        # 写越界（IndexError），链上取到错位的历史位置。
+        rng = random.Random(20260926)
+        block = bytes(rng.choices(range(256), k=100))
+        filler = bytes(rng.choices(range(256), k=900))
+        # 重复间隔 1000 < window=1024，数据总长远超 window
+        data = (block + filler) * 20
+        blob = lzpack.compress(data, level=9, window=1024)
+        self.assertEqual(lzpack.decompress(blob), data)
+        for token in find_tokens(data, 9, 1024):
+            if token[0] == "m":
+                self.assertLessEqual(token[1], 1024)
+
+    def test_regression_literal_block_length(self):
+        # 字面量块解码曾按 标签+2 换算（编码端为 标签+1），
+        # 每个字面量块多读一字节导致流错位。用无重复 3 字节序列的
+        # 输入（必为纯字面量块）覆盖块长边界 127/128/129。
+        for n in (1, 2, 127, 128, 129, 200, 256):
+            data = bytes(range(256))[:n]
+            self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+        # 字节级：8 字节纯字面量输入 → 一个标签为 7 的字面量块
+        blob = lzpack.compress(b"abcdefgh")
+        self.assertEqual(blob[12], 7)
+        self.assertEqual(blob[13:], b"abcdefgh")
+
+
 if __name__ == "__main__":
     unittest.main()

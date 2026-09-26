@@ -72,7 +72,7 @@ def validate_config(level, window):
     """校验压缩参数，非法时抛 ConfigError。"""
     if isinstance(level, bool) or not isinstance(level, int):
         raise ConfigError("level 必须是 1..9 的整数，收到: %r" % (level,))
-    if not 1 <= level <= 10:
+    if not 1 <= level <= 9:
         raise ConfigError("level 只允许 1..9，收到: %d" % level)
     if isinstance(window, bool) or not isinstance(window, int):
         raise ConfigError("window 必须是 1KB..1MB 之间 2 的幂，收到: %r" % (window,))
@@ -225,7 +225,7 @@ class Decompressor:
         while pos < n:
             tag = buf[pos]
             if tag < 0x80:
-                cnt = tag + 2
+                cnt = tag + 1
                 if pos + 1 + cnt > n:
                     break  # 字面量块没收全，等更多数据
                 seg = bytes(buf[pos + 1:pos + 1 + cnt])
