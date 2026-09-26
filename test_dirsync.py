@@ -349,5 +349,157 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestIgnoreLastMatchWinsRegression(TempDirCase):
+    """回归：忽略规则必须「最后一条命中生效」，! 重新包含不得失效。"""
+
+    def setUp(self):
+        super().setUp()
+        make_file(self.p("a.log"), b"a")
+        make_file(self.p("b.log"), b"b")
+        make_file(self.p("sub/c.log"), b"c")
+        make_file(self.p("note.txt"), b"n")
+
+    def test_reinclude_after_wildcard(self):
+        paths = snapshot(self.tmp, ignore=["*.log", "!b.log"]).paths()
+        self.assertNotIn("a.log", paths)
+        self.assertNotIn("sub/c.log", paths)
+        self.assertIn("b.log", paths)
+
+    def test_later_rule_overrides_earlier(self):
+        # 三条规则依次命中同一路径，最后一条决定结果
+        paths = snapshot(
+            self.tmp, ignore=["*.log", "!b.log", "b.log"]
+        ).paths()
+        self.assertNotIn("b.log", paths)
+        self.assertNotIn("a.log", paths)
+        # 顺序再变：最后一条是 !b.log，则保留
+        paths2 = snapshot(
+            self.tmp, ignore=["b.log", "*.log", "!b.log"]
+        ).paths()
+        self.assertIn("b.log", paths2)
+        self.assertNotIn("a.log", paths2)
+
+    def test_no_match_defaults_to_kept(self):
+        paths = snapshot(self.tmp, ignore=["*.tmp"]).paths()
+        self.assertIn("a.log", paths)
+        self.assertIn("note.txt", paths)
+
+
+class TestDiffKindChangeRegression(unittest.TestCase):
+    """回归：同一路径 kind 变化必须出现在 modified 里。"""
+
+    def test_kind_changes_are_modified(self):
+        old = Manifest([
+            ManifestEntry("f2d", "file", 1, "a" * 64, None),
+            ManifestEntry("d2f", "dir"),
+            ManifestEntry("f2l", "file", 1, "b" * 64, None),
+            ManifestEntry("l2f", "symlink", 0, None, "x"),
+            ManifestEntry("same", "file", 1, "c" * 64, None),
+        ])
+        new = Manifest([
+            ManifestEntry("f2d", "dir"),
+            ManifestEntry("d2f", "file", 1, "d" * 64, None),
+            ManifestEntry("f2l", "symlink", 0, None, "y"),
+            ManifestEntry("l2f", "file", 1, "e" * 64, None),
+            ManifestEntry("same", "file", 1, "c" * 64, None),
+        ])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["d2f", "f2d", "f2l", "l2f"])
+        self.assertEqual(d.unchanged, ["same"])
+        self.assertEqual(d.added, [])
+        self.assertEqual(d.removed, [])
+
+
+class TestApplyKindSwitchRegression(TempDirCase):
+    """回归：kind 切换时必须先删旧节点再创建，且结果通过 verify。"""
+
+    def setUp(self):
+        super().setUp()
+        self.src = self.p("src")
+        self.dst = self.p("dst")
+        os.makedirs(self.src)
+        make_file(self.p("src/keep.txt"), b"k")
+
+    def _roundtrip(self, mutate):
+        """apply 初始清单 -> 按 mutate 改源目录 -> 再 apply 并校验。"""
+        m1 = snapshot(self.src)
+        apply(self.src, m1, self.dst)
+        mutate()
+        m2 = snapshot(self.src)
+        r = apply(self.src, m2, self.dst)
+        self.assertEqual(verify(self.dst, m2), [])
+        return r
+
+    def test_dir_to_file(self):
+        os.makedirs(self.p("src/swap"))
+        make_file(self.p("src/swap/inner.txt"), b"i")
+
+        def mutate():
+            shutil.rmtree(self.p("src/swap"))
+            make_file(self.p("src/swap"), b"now-a-file")
+
+        r = self._roundtrip(mutate)
+        self.assertIn("swap", r.updated)
+        self.assertIn("swap/inner.txt", r.deleted)
+        with open(self.p("dst/swap"), "rb") as f:
+            self.assertEqual(f.read(), b"now-a-file")
+
+    def test_file_to_symlink(self):
+        make_file(self.p("src/swap"), b"plain")
+
+        def mutate():
+            os.unlink(self.p("src/swap"))
+            os.symlink("keep.txt", self.p("src/swap"))
+
+        r = self._roundtrip(mutate)
+        self.assertIn("swap", r.updated)
+        self.assertTrue(os.path.islink(self.p("dst/swap")))
+        self.assertEqual(os.readlink(self.p("dst/swap")), "keep.txt")
+
+    def test_symlink_to_dir(self):
+        os.symlink("keep.txt", self.p("src/swap"))
+
+        def mutate():
+            os.unlink(self.p("src/swap"))
+            os.makedirs(self.p("src/swap"))
+            make_file(self.p("src/swap/inner.txt"), b"i")
+
+        r = self._roundtrip(mutate)
+        self.assertIn("swap", r.updated)
+        self.assertTrue(os.path.isdir(self.p("dst/swap")))
+        self.assertFalse(os.path.islink(self.p("dst/swap")))
+
+    def test_kind_switch_then_idempotent(self):
+        make_file(self.p("src/swap"), b"plain")
+
+        def mutate():
+            os.unlink(self.p("src/swap"))
+            os.makedirs(self.p("src/swap"))
+
+        self._roundtrip(mutate)
+        m2 = snapshot(self.src)
+        r2 = apply(self.src, m2, self.dst)
+        self.assertEqual(r2.created, [])
+        self.assertEqual(r2.updated, [])
+        self.assertEqual(r2.deleted, [])
+
+
+class TestBackslashPathRegression(unittest.TestCase):
+    """回归：反斜杠路径必须被 ManifestError 拦截。"""
+
+    def test_backslash_rejected_in_entry(self):
+        for path in ["a\\b", "a\\b/c", "a/b\\c", "\\abs", "trail\\"]:
+            with self.assertRaises(ManifestError, msg=f"应拒绝路径 {path!r}"):
+                Manifest([ManifestEntry(path, "dir")])
+
+    def test_backslash_rejected_via_json(self):
+        entry = {"path": "win\\style", "kind": "dir", "size": 0,
+                 "sha256": None, "target": None}
+        text = json.dumps({"format": "dirsync-manifest", "version": 1,
+                           "entries": [entry]})
+        with self.assertRaises(ManifestError):
+            Manifest.from_json(text)
+
+
 if __name__ == "__main__":
     unittest.main()

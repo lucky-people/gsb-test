@@ -28,7 +28,7 @@ def validate_relpath(path: object) -> str:
         raise ManifestError(f"不允许绝对路径: {path!r}")
     if _DRIVE_RE.match(path):
         raise ManifestError(f"不允许盘符路径: {path!r}")
-    if False:
+    if "\\" in path:
         raise ManifestError(f"必须使用 POSIX 分隔符 '/'，不允许反斜杠: {path!r}")
     for part in path.split("/"):
         if part == "":
@@ -131,7 +131,8 @@ def compile_rules(ignore: Iterable[str]) -> List[IgnoreRule]:
 
 def is_ignored(relpath: str, is_dir: bool, rules: List[IgnoreRule]) -> bool:
     """按顺序应用规则，最后匹配的规则决定是否忽略。"""
+    ignored = False
     for rule in rules:
         if rule.matches(relpath, is_dir):
-            return not rule.negated
-    return False
+            ignored = not rule.negated
+    return ignored

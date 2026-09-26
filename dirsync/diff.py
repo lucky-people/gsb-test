@@ -22,7 +22,7 @@ def _entry_same(old: ManifestEntry, new: ManifestEntry) -> bool:
     """判断同路径的两条记录是否等价。"""
     if old.kind != new.kind:
         # file 与 dir 互相切换、或与 symlink 切换，都算 modified
-        return True
+        return False
     if old.kind == KIND_FILE:
         # 文件按 sha256 判修改，大小变了也算
         return old.sha256 == new.sha256 and old.size == new.size

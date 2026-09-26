@@ -122,6 +122,11 @@ python3 -m unittest test_dirsync -v
 diff 四类结果、apply 原子性与幂等、prune 开关、dry_run、
 源文件被改动时报错、verify 检出篡改与多余条目。
 
+回归用例（dirsync-f09）：忽略规则「最后一条命中生效」与多级覆盖、
+diff 检出 file/dir/symlink 两两 kind 切换、apply 在 kind 切换时
+先删旧节点再创建且二次 apply 幂等、反斜杠路径在构造与 JSON
+解析两个入口均被 `ManifestError` 拦截。
+
 ## 模块结构
 
 | 模块 | 职责 |
