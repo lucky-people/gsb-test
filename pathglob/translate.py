@@ -150,9 +150,13 @@ def translate(body, anchored, directory_only, original, offset):
                 # 结尾 `/**`：匹配自身及下级所有内容
                 parts.append("(?:/.*)?" if need_slash else ".*")
             else:
-                # 中间 `/**/`：匹配零层或多层目录
-                parts.append("/.*/" if need_slash else ".*/")
-                need_slash = False
+                # 中间 `/**/`：匹配零层或多层目录。
+                # 零层时整段（含两侧斜杠）都要能消掉，因此斜杠必须
+                # 一并包进可重复分组里，而不是写成固定分隔符
+                if need_slash:
+                    parts.append("(?:/[^/]+)*")
+                else:
+                    parts.append("(?:[^/]+/)*")
             continue
         seg_re, seg_lit = _translate_segment(seg, original, offset + segpos)
         if seg_lit is None:

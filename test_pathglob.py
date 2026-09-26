@@ -432,5 +432,80 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestRegressionTripleBreakage(unittest.TestCase):
+    """三组历史缺陷的回归测试：默认大小写、目录子树、`**` 零层语义。
+
+    回归背景：曾同时出现 (1) 默认大小写不敏感失效（编译时 casefold 了
+    模式，匹配时却用未 casefold 的路径）；(2) 目录规则只命中目录自身、
+    丢掉子树；(3) 中间 `/**/` 被翻译成「至少一层」，零层不再命中。
+    """
+
+    def test_default_case_insensitive_glob(self):
+        # 默认 case_sensitive=False：模式与路径都按 casefold 比较
+        p = compile_pattern("*.LOG")
+        self.assertFalse(p.case_sensitive)
+        self.assertTrue(p.matches("a.log"))
+        self.assertTrue(p.matches("A.Log"))
+        # 显式大小写敏感不受默认策略影响
+        p_cs = compile_pattern("*.LOG", case_sensitive=True)
+        self.assertTrue(p_cs.matches("a.LOG"))
+        self.assertFalse(p_cs.matches("a.log"))
+
+    def test_directory_rule_subtree_any_depth(self):
+        p = compile_pattern("build/")
+        # 目录自身：仅 is_dir=True 命中
+        self.assertTrue(p.matches("build", is_dir=True))
+        self.assertFalse(p.matches("build", is_dir=False))
+        # 任意层级的内容：is_dir 任意都命中
+        self.assertTrue(p.matches("build/out.bin"))
+        self.assertTrue(p.matches("build/a/b/c", is_dir=False))
+        self.assertTrue(p.matches("build/a/b/c", is_dir=True))
+        # 兄弟目录不命中
+        self.assertFalse(p.matches("build2/out.bin"))
+
+    def test_double_star_zero_levels(self):
+        # `**/x`：顶层的 x 也命中（零层目录）
+        p = compile_pattern("**/x")
+        self.assertTrue(p.matches("x"))
+        self.assertTrue(p.matches("a/b/x"))
+        # `a/**/b`：零层、一层、多层都命中
+        p2 = compile_pattern("a/**/b")
+        self.assertTrue(p2.matches("a/b"))
+        self.assertTrue(p2.matches("a/x/b"))
+        self.assertTrue(p2.matches("a/x/y/b"))
+        # 结尾 `a/**`：匹配 a 自身与其下所有内容
+        p3 = compile_pattern("a/**")
+        self.assertTrue(p3.matches("a"))
+        self.assertTrue(p3.matches("a/x/y"))
+        # 连续 `**/**` 折叠为一个
+        p4 = compile_pattern("a/**/**/b")
+        self.assertTrue(p4.matches("a/b"))
+        self.assertTrue(p4.matches("a/x/y/b"))
+
+    def test_escape_in_anchored_and_directory_rules_invariant(self):
+        # 不变量：同一规则同一路径，Pattern.matches / Matcher.ignores /
+        # Matcher.match 三个入口的结论必须一致（含锚定与目录规则中的
+        # \*、\ 空格、\[ 转义）
+        cases = [
+            (r"/a\[b", "a[b", False),
+            (r"/a\[b", "x/a[b", False),
+            (r"/a\*b/", "a*b/c", False),
+            (r"/a\*b/", "a*b", True),
+            (r"/a\*b/", "a*b", False),
+            (r"a\ b/", "a b/c/d", False),
+            (r"a\ b/", "xa b/c", False),
+            (r"\[abc\].txt", "[abc].txt", False),
+            (r"\[abc\].txt", "a.txt", False),
+        ]
+        for pat, path, is_dir in cases:
+            with self.subTest(pat=pat, path=path, is_dir=is_dir):
+                expected = compile_pattern(pat).matches(path, is_dir=is_dir)
+                m = Matcher([pat])
+                self.assertEqual(m.ignores(path, is_dir=is_dir), expected)
+                self.assertEqual(
+                    m.match(path, is_dir=is_dir) is not None, expected
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
