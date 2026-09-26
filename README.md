@@ -119,8 +119,9 @@ python3 -m unittest test_dirsync -v
 
 覆盖：清单确定性、JSON 往返、分块哈希（0 字节与 >8 MiB）、空目录、
 非 ASCII 与空格文件名、忽略规则顺序与 `!` 重新包含、非法路径、
-diff 四类结果、apply 原子性与幂等、prune 开关、dry_run、
-源文件被改动时报错、verify 检出篡改与多余条目。
+diff 四类结果（含等长改写检出）、apply 原子性与幂等、prune 开关、
+dry_run、源文件被改动时报错且目标零改动、file↔dir 类型切换、
+verify 检出篡改（含等长篡改）与多余条目。
 
 ## 模块结构
 

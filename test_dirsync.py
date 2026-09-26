@@ -349,5 +349,80 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestRegressions(TempDirCase):
+    """dirsync-f04 工单三个问题点的回归测试。"""
+
+    def setUp(self):
+        super().setUp()
+        self.src = self.p("src")
+        self.dst = self.p("dst")
+        os.makedirs(self.src)
+        make_file(self.p("src/a.txt"), b"aaa")
+        make_file(self.p("src/sub/b.txt"), b"bbb")
+        self.manifest = snapshot(self.src)
+
+    def test_diff_detects_same_size_rewrite(self):
+        # 回归：等长改写（大小不变、内容变）必须算 modified
+        old = Manifest([ManifestEntry("f.txt", "file", 3, "a" * 64, None)])
+        new = Manifest([ManifestEntry("f.txt", "file", 3, "b" * 64, None)])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["f.txt"])
+        self.assertEqual(d.unchanged, [])
+
+    def test_apply_updates_same_size_rewrite(self):
+        # 回归：等长改写后 apply 必须更新目标文件
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("src/a.txt"), b"XXX")  # 同为 3 字节
+        m2 = snapshot(self.src)
+        r = apply(self.src, m2, self.dst)
+        self.assertEqual(r.updated, ["a.txt"])
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"XXX")
+        self.assertEqual(verify(self.dst, m2), [])
+
+    def test_verify_detects_same_size_tamper(self):
+        # 回归：目标被等长篡改时 verify 必须检出
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("dst/a.txt"), b"hax")  # 同为 3 字节
+        self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
+
+    def test_apply_reads_existing_target_state(self):
+        # 回归：apply 必须读取目标现状，内容一致时什么都不做
+        os.makedirs(self.p("dst/sub"))
+        make_file(self.p("dst/a.txt"), b"aaa")
+        make_file(self.p("dst/sub/b.txt"), b"bbb")
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 3)
+
+    def test_updated_source_tampered_raises_and_untouched(self):
+        # 回归：被修改（updated）的待写文件也要核对源 size/sha256，
+        # 源被篡改时抛 ApplyError，且目标一个字节都不动
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("dst/a.txt"), b"old")      # 让 a.txt 进入 updated
+        make_file(self.p("src/a.txt"), b"tampered")  # 源在快照后被篡改
+        make_file(self.p("dst/extra.txt"), b"extra")  # prune 待删条目
+        before = snapshot(self.dst)
+        with self.assertRaises(ApplyError):
+            apply(self.src, self.manifest, self.dst)
+        # 目标保持原样：updated 没写、prune 没删
+        self.assertEqual(snapshot(self.dst), before)
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"old")
+        self.assertTrue(os.path.exists(self.p("dst/extra.txt")))
+
+    def test_kind_switch_dir_to_file(self):
+        # 回归：目录切换为文件的 kind 变更也要正确处理
+        apply(self.src, self.manifest, self.dst)
+        shutil.rmtree(self.p("src/sub"))
+        make_file(self.p("src/sub"), b"now-a-file")
+        m2 = snapshot(self.src)
+        r = apply(self.src, m2, self.dst)
+        self.assertIn("sub", r.updated)
+        self.assertEqual(verify(self.dst, m2), [])
+
+
 if __name__ == "__main__":
     unittest.main()
