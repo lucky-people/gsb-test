@@ -17,29 +17,66 @@ import re
 from .errors import PatternError
 
 
-def _translate_class(content):
-    """翻译字符类内容（不含外层方括号），返回正则片段。"""
+def _translate_class(content, original, base):
+    """翻译字符类内容（不含外层方括号），返回正则字符类片段。
+
+    支持 `[a-z]` 区间、`]` 作为首字符、``\\x`` 转义；
+    `-` 只在“前一个字面字符”与“后一个字符”之间才构成区间，
+    位于开头/结尾或被反斜杠转义时按字面处理。
+    """
     negated = content[:1] in ("!", "^")
     if negated:
         content = content[1:]
-    items = []
+    tokens = []  # ("lit", 字符) 或 ("range", 下界, 上界)
     i = 0
     n = len(content)
-    # `]` 作为首字符按字面处理
-    if n and content[0] == "]":
-        items.append("\\]")
-        i = 1
+
+    def emit_char(ch):
+        """字符类内部只需转义 `]`、`\\`，字面 `-` 一并转义以防成区间。"""
+        if ch in ("]", "\\", "-"):
+            return "\\" + ch
+        return ch
+
     while i < n:
         c = content[i]
         if c == "\\" and i + 1 < n:
-            items.append(re.escape(content[i + 1]))
+            # 转义序列贡献被转义的字符本身（\- 是字面连字符）
+            tokens.append(("lit", content[i + 1]))
             i += 2
             continue
-        if c in ("\\", "]"):
-            items.append("\\" + c)
-        else:
-            items.append("\\" + c)
+        if (
+            c == "-"
+            and tokens
+            and tokens[-1][0] == "lit"
+            and i + 1 < n
+            and content[i + 1] != "]"
+        ):
+            # 两个字面字符之间的 `-` 构成区间；区间端点也允许转义
+            _, lo = tokens.pop()
+            if content[i + 1] == "\\" and i + 2 < n:
+                hi = content[i + 2]
+                i += 3
+            else:
+                hi = content[i + 1]
+                i += 2
+            if ord(lo) > ord(hi):
+                raise PatternError(
+                    original,
+                    base + i,
+                    f"字符区间 {lo}-{hi} 的下界大于上界",
+                )
+            tokens.append(("range", lo, hi))
+            continue
+        # 开头/结尾的 `-` 与其他字符一律按字面处理（含首字符 `]`）
+        tokens.append(("lit", c))
         i += 1
+
+    items = []
+    for tok in tokens:
+        if tok[0] == "lit":
+            items.append(emit_char(tok[1]))
+        else:
+            items.append(emit_char(tok[1]) + "-" + emit_char(tok[2]))
     inner = "".join(items)
     if negated:
         # 取反字符类同样不能匹配路径分隔符
@@ -63,7 +100,8 @@ def _translate_segment(seg, original, base):
             # 段内的连续星号（如 a**b）退化为单个 `*` 的语义
             while i < n and seg[i] == "*":
                 i += 1
-            out.append(".*")
+            # 段内 `*` 不跨路径分隔符
+            out.append("[^/]*")
             lit = None
         elif c == "?":
             out.append("[^/]")
@@ -85,7 +123,7 @@ def _translate_segment(seg, original, base):
                 k += 1
             if k >= n:
                 raise PatternError(original, base + i, '字符类 "[" 未闭合')
-            out.append(_translate_class(seg[i + 1:k]))
+            out.append(_translate_class(seg[i + 1:k], original, base + i + 1))
             lit = None
             i = k + 1
         elif c == "\\":

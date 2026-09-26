@@ -51,6 +51,29 @@ class TestStarAndDoubleStar(unittest.TestCase):
         self.assertTrue(p.matches("a/b"))
         self.assertTrue(p.matches("a/x/y/b"))
 
+    def test_star_with_suffix_does_not_cross_slash(self):
+        # 回归：段内 `*` 曾被翻成 `.*`，导致 build/*.tmp 命中下级目录
+        p = compile_pattern("build/*.tmp")
+        self.assertTrue(p.matches("build/a.tmp"))
+        self.assertFalse(p.matches("build/x/a.tmp"))
+
+    def test_star_embedded_in_segment_does_not_cross_slash(self):
+        p = compile_pattern("a*b")
+        self.assertTrue(p.matches("axb"))
+        self.assertFalse(p.matches("a/x/b"))
+
+    def test_star_works_after_path_normalization(self):
+        # 规范化折叠掉多余斜杠后，段内 `*` 仍只在单段内匹配
+        p = compile_pattern("a/*/b")
+        self.assertTrue(p.matches("a//x//b"))
+        self.assertFalse(p.matches("a//x/y//b"))
+
+    def test_unanchored_star_matches_by_basename_at_any_depth(self):
+        # 非锚定模式按 basename 在任意深度命中，但 basename 内部不能含 `/`
+        p = compile_pattern("*.tmp")
+        self.assertTrue(p.matches("x/y/a.tmp"))
+        self.assertFalse(p.matches("x/y/a.tmp/b"))
+
 
 class TestAnchoring(unittest.TestCase):
     def test_leading_slash_anchors_to_root(self):
@@ -131,6 +154,50 @@ class TestCharClass(unittest.TestCase):
             compile_pattern("ab[cd")
         self.assertEqual(ctx.exception.pattern, "ab[cd")
         self.assertIsInstance(ctx.exception.position, int)
+
+    def test_multiple_ranges_and_literals(self):
+        # 回归：`-` 曾被无条件转义，区间退化成三个字面字符
+        p = compile_pattern("[a-z0-9]", case_sensitive=True)
+        self.assertTrue(p.matches("m"))
+        self.assertTrue(p.matches("5"))
+        self.assertFalse(p.matches("A"))
+        self.assertFalse(p.matches("-"))
+
+    def test_literal_dash_at_start_end_and_escaped(self):
+        for pat in ("[-a]", "[a-]", r"[a\-z]"):
+            with self.subTest(pat=pat):
+                p = compile_pattern(pat, case_sensitive=True)
+                self.assertTrue(p.matches("-"))
+                self.assertTrue(p.matches("a"))
+                self.assertFalse(p.matches("m"))
+        p = compile_pattern("[-a-z]", case_sensitive=True)
+        self.assertTrue(p.matches("-"))
+        self.assertTrue(p.matches("m"))
+
+    def test_escaped_bracket_is_literal_inside_class(self):
+        p = compile_pattern(r"[\]a]", case_sensitive=True)
+        self.assertTrue(p.matches("]"))
+        self.assertTrue(p.matches("a"))
+        self.assertFalse(p.matches("b"))
+
+    def test_reversed_range_raises(self):
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("[z-a]")
+        self.assertEqual(ctx.exception.pattern, "[z-a]")
+        self.assertIn("区间", str(ctx.exception))
+
+    def test_class_does_not_swallow_separator(self):
+        # FNM_PATHNAME 语义：`/` 是段分隔符，不会进入字符类参与匹配
+        p = compile_pattern("a[bc]d", case_sensitive=True)
+        self.assertFalse(p.matches("a/d"))
+        self.assertFalse(p.matches("a//d"))
+        self.assertFalse(p.matches("a/c/d"))
+
+    def test_class_in_anchor_rule_matches_segments_only(self):
+        p = compile_pattern("src/[ab].c", case_sensitive=True)
+        self.assertTrue(p.matches("src/a.c"))
+        self.assertFalse(p.matches("src/x/a.c"))
+        self.assertFalse(p.matches("src/a.c/x"))
 
 
 class TestEscape(unittest.TestCase):
@@ -307,6 +374,69 @@ class TestNormalizePath(unittest.TestCase):
             self.assertIn("绝对路径", str(exc))
         else:
             self.fail("应当抛出 PathError")
+
+    def test_collapses_any_number_of_repeated_slashes(self):
+        self.assertEqual(normalize_path("a///b//c"), "a/b/c")
+        self.assertEqual(normalize_path("./a//b/./c/"), "a/b/c")
+
+    def test_dot_or_slash_only_normalizes_to_empty_and_raises(self):
+        for bad in (".", "./", ".//.", "//", "a/..", "../b"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(PathError):
+                    normalize_path(bad)
+
+    def test_normalization_makes_slashes_insignificant_in_match(self):
+        p = compile_pattern("a/b")
+        self.assertTrue(p.matches("a//b"))
+        self.assertTrue(p.matches("a//b/"))
+        m = Matcher(["a/b"])
+        self.assertTrue(m.ignores("a//b"))
+
+
+class TestFixedRulesEntryConsistency(unittest.TestCase):
+    """三个根因修复后，三个入口对同一规则必须保持结论一致。"""
+
+    CASES = [
+        # (规则, 路径, is_dir, case_sensitive, 预期)
+        ("[a-z].log", "a.log", False, True, True),
+        ("[a-z].log", "A.log", False, True, False),
+        ("build/*.tmp", "build/a.tmp", False, False, True),
+        ("build/*.tmp", "build/x/a.tmp", False, False, False),
+        ("a/*/b", "a/x/y/b", False, False, False),
+        ("a/b", "a//b", False, False, True),
+        ("a/b", "a//b/", False, False, True),
+        ("docs/", "docs", True, False, True),
+        ("docs/", "docs", False, False, False),
+        ("*.py[cod]", "x.pyc", False, False, True),
+        ("*.py[cod]", "x.pyd", False, False, True),
+        ("*.py[cod]", "x.pye", False, False, False),
+    ]
+
+    def test_matches_match_ignores_agree(self):
+        for pattern, path, is_dir, case_sensitive, expected in self.CASES:
+            with self.subTest(pattern=pattern, path=path, is_dir=is_dir):
+                pat = compile_pattern(pattern, case_sensitive=case_sensitive)
+                self.assertEqual(pat.matches(path, is_dir=is_dir), expected)
+                matcher = Matcher([pat])
+                self.assertEqual(
+                    matcher.match(path, is_dir=is_dir) is not None, expected
+                )
+                self.assertEqual(
+                    matcher.ignores(path, is_dir=is_dir), expected
+                )
+
+    def test_last_hit_wins_with_classes_and_star(self):
+        # 字符类/段内星号规则也遵守“最后命中说了算”，`!` 可重新包含
+        m = Matcher(["build/*.tmp", "!build/keep.tmp"])
+        self.assertTrue(m.ignores("build/a.tmp"))
+        self.assertFalse(m.ignores("build/keep.tmp"))
+        matched = m.match("build/keep.tmp")
+        self.assertIsNotNone(matched)
+        self.assertTrue(matched.negated)
+
+        m2 = Matcher(["[a-z].log", "![a-z].log", "a.log"])
+        self.assertTrue(m2.ignores("a.log"))
+        self.assertFalse(m2.ignores("b.log"))
 
 
 class TestCaseSensitivity(unittest.TestCase):
