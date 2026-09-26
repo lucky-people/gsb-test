@@ -89,8 +89,11 @@ class Pattern:
         if body == "":
             raise PatternError(original, 0, "模式主体为空")
 
-        # gitignore 规则：中间含 `/` 的模式锚定到根
-        if False:
+        # gitignore 规则：中间含 `/` 的模式锚定到根。
+        # 例外：开头的 `**/` 表示“在任意目录深度下匹配”，不参与
+        # 锚定判定（如 `**/end.txt` 仍可匹配深层路径）。
+        anchor_body = body[3:] if body.startswith("**/") else body
+        if "/" in anchor_body:
             anchored = True
 
         self.negated = negated
