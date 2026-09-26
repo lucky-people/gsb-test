@@ -185,6 +185,13 @@ class TestIgnoreRules(TempDirCase):
         self.assertNotIn("src/sub/temp.tmp", paths)
         self.assertIn("keep.txt", paths)
 
+    def test_double_star_matches_zero_dirs(self):
+        # 回归：**/ 必须能匹配零层目录，顶层文件也要命中
+        make_file(self.p("top.tmp"), b"t")
+        paths = self.paths_of(["**/top.tmp"])
+        self.assertNotIn("top.tmp", paths)
+        self.assertIn("keep.txt", paths)
+
     def test_trailing_slash_ignores_subtree(self):
         paths = self.paths_of(["build/"])
         self.assertNotIn("build", paths)
@@ -231,6 +238,14 @@ class TestDiff(unittest.TestCase):
         self.assertEqual(d.unchanged, ["same.txt"])
         for lst in (d.added, d.removed, d.modified, d.unchanged):
             self.assertEqual(lst, sorted(lst))
+
+    def test_same_size_content_change_is_modified(self):
+        # 回归：等长改写（size 相同、sha256 不同）必须判为 modified
+        old = Manifest([self.entry("f.txt", size=3, sha="a" * 64)])
+        new = Manifest([self.entry("f.txt", size=3, sha="b" * 64)])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["f.txt"])
+        self.assertEqual(d.unchanged, [])
 
 
 class TestApply(TempDirCase):
@@ -310,6 +325,35 @@ class TestApply(TempDirCase):
         with open(self.p("dst/a.txt"), "rb") as f:
             self.assertEqual(f.read(), b"keepme")
 
+    def test_source_tampered_same_size_raises(self):
+        # 回归：待更新文件的源被等长篡改（size 不变、sha256 变）也要拦
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("src/a.txt"), b"XXX")  # 与 "aaa" 等长
+        make_file(self.p("dst/a.txt"), b"keepme")
+        with self.assertRaises(ApplyError):
+            apply(self.src, self.manifest, self.dst)
+        with open(self.p("dst/a.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"keepme")
+
+    def test_source_check_covers_created_and_updated(self):
+        # 回归：新建与待更新的文件都要核对源，缺一不可
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("src/new.txt"), b"new")
+        make_file(self.p("src/sub/b.txt"), b"tampered")
+        m2 = snapshot(self.src)
+        # 篡改 m2 清单里 sub/b.txt 的 sha256，模拟快照后源被改动
+        entries = [
+            ManifestEntry(e.path, e.kind, e.size,
+                          "0" * 64 if e.path == "sub/b.txt" else e.sha256,
+                          e.target)
+            for e in m2
+        ]
+        m3 = Manifest(entries)
+        before = snapshot(self.dst)
+        with self.assertRaises(ApplyError):
+            apply(self.src, m3, self.dst)
+        self.assertEqual(snapshot(self.dst), before)  # 目标保持原样
+
     def test_kind_switch_file_to_dir(self):
         apply(self.src, self.manifest, self.dst)
         os.unlink(self.p("src/a.txt"))
@@ -342,6 +386,11 @@ class TestVerify(TempDirCase):
         bad = verify(self.dst, self.manifest)
         self.assertEqual(bad, ["a.txt", "rogue.txt", "sub/b.txt"])
         self.assertEqual(bad, sorted(bad))
+
+    def test_detects_same_size_tamper(self):
+        # 回归：等长篡改（大小不变、内容变了）也要被 verify 检出
+        make_file(self.p("dst/a.txt"), b"XXX")  # 与 "aaa" 等长
+        self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
     def test_detects_kind_mismatch(self):
         os.unlink(self.p("dst/a.txt"))

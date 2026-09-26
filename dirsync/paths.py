@@ -46,8 +46,8 @@ def _translate(pattern: str) -> str:
         c = pattern[i]
         if c == "*":
             if pattern.startswith("**/", i):
-                # **/ 可匹配零层或多层目录
-                out.append("[^/]*/")
+                # **/ 可匹配零层或多层目录（零层时顶层文件也能匹配）
+                out.append("(?:[^/]+/)*")
                 i += 3
             elif pattern.startswith("**", i):
                 out.append(".*")
