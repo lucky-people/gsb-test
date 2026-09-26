@@ -158,7 +158,7 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 59 个用例
 python3 bench.py                        # 性能基准
 ```
 

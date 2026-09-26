@@ -383,6 +383,47 @@ class TestPatternErrors(unittest.TestCase):
         self.assertTrue(p.case_sensitive)
 
 
+class TestRootCauseRegressions(unittest.TestCase):
+    """pathglob-f07 三处根因的回归测试。
+
+    每处根因都同时覆盖 Pattern 与 Matcher 两个入口，
+    保证三个入口（matches / match / ignores）结论一致。
+    """
+
+    def assert_consistent(self, pattern, path, is_dir=False):
+        expected = compile_pattern(pattern).matches(path, is_dir=is_dir)
+        matcher = Matcher([pattern])
+        self.assertEqual(matcher.match(path, is_dir=is_dir) is not None, expected)
+        self.assertEqual(matcher.ignores(path, is_dir=is_dir), expected)
+
+    def test_regression_anchored_prefix_not_unconditional(self):
+        # 根因一：锚定规则曾被加上任意深度前缀，导致跨层级误中
+        for pattern, path in [("/foo", "a/foo"), ("doc/*.md", "x/doc/a.md"),
+                              ("/build/", "src/build/out.o")]:
+            with self.subTest(pattern=pattern, path=path):
+                self.assertFalse(compile_pattern(pattern).matches(path))
+                self.assertFalse(Matcher([pattern]).ignores(path))
+                self.assert_consistent(pattern, path)
+
+    def test_regression_directory_rule_self_match_requires_dir(self):
+        # 根因二：目录规则在 is_dir=False 时把目录自身也算命中
+        for pattern in ("build/", "/build/"):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(compile_pattern(pattern).matches("build"))
+                self.assertFalse(Matcher([pattern]).ignores("build"))
+                self.assertTrue(Matcher([pattern]).ignores("build", is_dir=True))
+                self.assert_consistent(pattern, "build")
+                self.assert_consistent(pattern, "build", is_dir=True)
+
+    def test_regression_trailing_double_star_matches_self(self):
+        # 根因三：结尾 `/**` 曾要求必须再有一层，匹配不到目录自身
+        for path in ("a", "a/x", "a/x/y"):
+            with self.subTest(path=path):
+                self.assert_consistent("a/**", path)
+                self.assertTrue(Matcher(["a/**"]).ignores(path))
+        self.assertFalse(Matcher(["a/**"]).ignores("ab"))
+
+
 class TestPerformance(unittest.TestCase):
     """500 路径 × 50 规则的批量判定应在很短时间内完成。"""
 

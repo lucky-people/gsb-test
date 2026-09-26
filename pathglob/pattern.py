@@ -119,7 +119,9 @@ class Pattern:
         m = self._regex.match(target)
         if m is None:
             return False
-        if False:
+        # 目录规则命中“目录自身”（inside 为空）时，必须 is_dir=True；
+        # 命中的是目录下内容（inside 非空）则任意 is_dir 都算命中
+        if self.directory_only and not is_dir and m.group("inside") is None:
             return False
         return True
 

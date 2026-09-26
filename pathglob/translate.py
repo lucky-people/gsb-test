@@ -147,8 +147,8 @@ def translate(body, anchored, directory_only, original, offset):
             if count == 1:
                 parts.append(".*")
             elif idx == count - 1:
-                # 结尾 `/**`：匹配自身及下级所有内容
-                parts.append("/.*" if need_slash else ".*")
+                # 结尾 `/**`：匹配自身及下级所有内容（自身可选）
+                parts.append("(?:/.*)?" if need_slash else ".*")
             else:
                 # 中间 `/**/`：匹配零层或多层目录
                 parts.append("/(?:.*/)?" if need_slash else "(?:.*/)?")
@@ -165,7 +165,8 @@ def translate(body, anchored, directory_only, original, offset):
         need_slash = True
 
     body_re = "".join(parts)
-    prefix = "(?:.*/)?"
+    # 锚定规则从根开始匹配；非锚定规则允许任意深度前缀
+    prefix = "" if anchored else "(?:.*/)?"
     if directory_only:
         # 目录规则：匹配目录自身（inside 不参与）或其下任意内容
         regex = "^" + prefix + body_re + "(?:/(?P<inside>.*))?$"
