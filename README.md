@@ -44,11 +44,16 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 
 | 标签 | 含义 |
 |------|------|
-| `0x00..0x7F` | 字面量块：长度 = 标签 + 1（1..128），随后是原样字节 |
+| `0x00..0x7F` | 字面量块：编码标签 = 长度 − 1，解码长度 = 标签 + 1（1..128），随后是原样字节 |
 | `0x80..0xFE` | 匹配：长度 = 3 + (标签 − 0x80)，即 3..129 |
 | `0xFF`       | 长匹配：长度 = 130 + 变长整数 |
 
 匹配标签之后跟一个变长整数：**偏移 − 1**。
+
+注意字面量标签是「长度 − 1」而非长度本身：编码端必须写 `len(part) - 1`，
+解码端按 `tag + 1` 取字节。若误写成 `len(part)`，每个字面量块会被多解出
+1 个字节，后续 token 边界整体错位，流最终以截断 / CRC 失败报 `FormatError`。
+该约定由 `TestRegression.test_literal_tag_is_length_minus_one` 锁定。
 
 明确上限：
 
@@ -71,7 +76,11 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 ## 匹配查找策略与复杂度
 
 - 3 字节乘积散列 + 哈希链：`head` 表指向最近位置，`prev` 是 window 大小
-  的环形数组（window 为 2 的幂，用位与取模），内存 O(window)；
+  的环形数组（window 为 2 的幂，用 `index & (window - 1)` 位与取模），
+  内存 O(window)；**写入与沿链回查的每一处下标都必须取模**（含当前位置
+  `i` 和匹配内部补插位置 `k`），漏取模会在输入超过 window 时越界，并让
+  链上读到错位的历史位置、窗口内重复失配。该不变量由
+  `TestRegression.test_hash_chain_prev_indexed_modulo_window` 锁定；
 - 每个位置沿链向后找最长匹配，**level 决定最大链搜索深度**
   （level 1 → 4，level 9 → 1024），并有 “nice length” 提前终止；
 - 匹配长度 ≥ 64 时跳过匹配内部位置的插入——长重复数据（日志、全 0）
@@ -88,6 +97,10 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 - `window`（1KB..1MB，2 的幂）：决定匹配可回溯的最大距离，也决定
   `prev` 数组内存（window × 4 字节）。重复间隔大于 window 的内容
   无法匹配；日志类数据 32KB 通常足够，大文件去重可开到 1MB。
+  取值必须是 2 的幂（环形下标依赖位与取模），`compress()` 与
+  `Compressor` 在入口以 `ConfigError` 拒绝非 2 的幂（如 1025、1536、
+  3072），不会静默接受；由
+  `TestRegression.test_window_must_be_power_of_two` 锁定。
 
 ## 与 gzip / zlib 的差异
 
@@ -106,6 +119,7 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 - 空输入：合法流，只有 12 字节头部，解压为 `b""`；
 - 单字节 / 全 0 数据：正常往返，全 0 高度可压；
 - 匹配长度上限 16384，超限拆成多个匹配；偏移超过 window 的重复不算匹配；
+- 非法配置（level 不在 1..9、window 越界或不是 2 的幂）在入口即 `ConfigError`；
 - 跨 feed 边界的匹配：流式与一次性输出逐字节相同；
 - 偏移正好等于 window（如 32768）的匹配合法；
 - CRC 字段被改成全 0 / 全 0xFF：`FormatError`；

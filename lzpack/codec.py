@@ -79,6 +79,10 @@ def validate_config(level, window):
     if not MIN_WINDOW <= window <= MAX_WINDOW:
         raise ConfigError(
             "window 只允许 1KB..1MB 之间 2 的幂，收到: %d" % window)
+    # window 必须是 2 的幂：哈希链用 (window - 1) 位与做环形取模，
+    # 非 2 的幂会让链下标错位，必须在入口拒绝。
+    if window & (window - 1):
+        raise ConfigError("window 必须是 2 的幂，收到: %d" % window)
 
 
 # ---------------------------------------------------------------- 头部
@@ -98,7 +102,9 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        # 标签约定为“长度 - 1”：0x00 表示 1 字节，0x7F 表示满块 128 字节，
+        # 必须与解码端的 cnt = tag + 1 严格对齐。
+        out.append(len(part) - 1)
         out += part
 
 

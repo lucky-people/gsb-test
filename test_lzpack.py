@@ -319,5 +319,59 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegression(unittest.TestCase):
+    """三处历史缺陷的回归：window 幂校验、字面量标签差一、哈希链环形下标。"""
+
+    def test_window_must_be_power_of_two(self):
+        # 落在 1KB..1MB 范围内但不是 2 的幂的 window 必须被拒绝，不能静默接受
+        for bad in (1025, 1536, 3072, 65535, 3 << 18):
+            with self.assertRaises(ConfigError):
+                lzpack.compress(b"x", window=bad)
+            with self.assertRaises(ConfigError):
+                lzpack.Compressor(window=bad)
+        # 合法的 2 的幂不受影响
+        for good in (1024, 2048, 32768):
+            self.assertEqual(lzpack.decompress(
+                lzpack.compress(b"x", window=good)), b"x")
+
+    def test_literal_tag_is_length_minus_one(self):
+        # 编码端：标签严格等于“长度 - 1”，0x00 表示 1 字节、0x7F 表示满块 128
+        out = bytearray()
+        codec._emit_literals(out, b"a")
+        self.assertEqual(bytes(out), b"\x00a")
+        block = bytes(range(128))
+        out = bytearray()
+        codec._emit_literals(out, block)
+        self.assertEqual(bytes(out), b"\x7f" + block)
+        # 129 字节必须拆成 128 + 1 两块，第二块标签为 0x00
+        out = bytearray()
+        codec._emit_literals(out, b"\x11" * 129)
+        self.assertEqual(out[0], 0x7F)
+        self.assertEqual(out[129], 0x00)
+        self.assertEqual(len(out), 131)
+        # 正常产物的单字节字面量标签必须是 0x00
+        blob = lzpack.compress(b"a")
+        self.assertEqual(blob[12], 0x00)
+        # 解码端：旧 bug 风格的标签（写成长度本身）声称 4 字节却只给 1 字节，
+        # 整块多吃一个字节后流必然不完整，必须报 FormatError
+        bad = bytes(blob[:12]) + b"\x03a"
+        with self.assertRaises(FormatError):
+            lzpack.decompress(bad)
+
+    def test_hash_chain_prev_indexed_modulo_window(self):
+        # 输入长度超过 window 时，旧实现 prev[i] 不取下标会直接越界
+        line = b"regression-line-for-ring-index-test\n"
+        data = line * 20000  # 约 92 万字节，远超窗口
+        blob = lzpack.compress(data, level=6, window=1024)
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 环形下标若错位，链上会取到错位的历史位置，窗口内重复失配、压缩率退化
+        self.assertLess(len(blob), len(data) * 0.05)
+        # 结构保证：超长输入下每个匹配偏移仍在 [1, window] 内
+        for token in find_tokens(data[:200000], 6, 1024):
+            if token[0] == "m":
+                self.assertGreaterEqual(token[1], 1)
+                self.assertLessEqual(token[1], 1024)
+
+
 if __name__ == "__main__":
     unittest.main()
