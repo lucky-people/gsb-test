@@ -147,8 +147,8 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 
 | 指标 | 实测 |
 | --- | --- |
-| 构建 Matcher（200 条规则） | ≈ 8.8 ms |
-| 批量判定 10 万路径 | ≈ 1.17 s（约 8.5 万路径/秒） |
+| 构建 Matcher（200 条规则） | ≈ 9.1 ms |
+| 批量判定 10 万路径 | ≈ 1.23 s（约 8.1 万路径/秒） |
 | 峰值内存（tracemalloc 单独一轮，含路径列表） | ≈ 7.2 MiB |
 | 单条 `**/node_modules/**` × 10 万路径 | ≈ 0.08 s |
 
@@ -158,7 +158,7 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 59 个用例
 python3 bench.py                        # 性能基准
 ```
 

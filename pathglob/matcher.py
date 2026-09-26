@@ -91,4 +91,4 @@ class Matcher:
     def ignores(self, path, is_dir=False):
         """路径是否被忽略：最后命中的规则不是 `!` 取反规则。"""
         matched = self.match(path, is_dir)
-        return matched is not None and matched.negated
+        return matched is not None and not matched.negated

@@ -416,5 +416,43 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestRegressionRootCauses(unittest.TestCase):
+    """针对三处历史根因的回归测试（每处根因一条）。"""
+
+    def test_regression_normalize_collapses_empty_segments(self):
+        # 根因：normalize_path 未跳过空段，`a//b` 与 `a/b` 结论不一致
+        self.assertEqual(normalize_path("a//b"), "a/b")
+        self.assertEqual(normalize_path("a///b//c/"), "a/b/c")
+        # 同一规则下，未折叠与已折叠的路径在三个入口结论必须一致
+        for path in ("a/b", "a//b", "./a//b/"):
+            with self.subTest(path=path):
+                expected = compile_pattern("a/b").matches(path)
+                matcher = Matcher(["a/b"])
+                self.assertTrue(expected)
+                self.assertIsNotNone(matcher.match(path))
+                self.assertEqual(matcher.ignores(path), expected)
+
+    def test_regression_middle_slash_anchors_to_root(self):
+        # 根因：中间含 `/` 的模式锚定逻辑被 `if False` 停用
+        p = compile_pattern("doc/a.md")
+        self.assertTrue(p.anchored)
+        self.assertTrue(p.matches("doc/a.md"))
+        self.assertFalse(p.matches("x/doc/a.md"))
+        # 字面量锚定规则走分桶快查，Matcher 结论必须与 Pattern 一致
+        matcher = Matcher(["doc/a.md"])
+        self.assertTrue(matcher.ignores("doc/a.md"))
+        self.assertFalse(matcher.ignores("x/doc/a.md"))
+        self.assertIsNone(matcher.match("x/doc/a.md"))
+
+    def test_regression_ignores_negation_direction(self):
+        # 根因：Matcher.ignores 把 negated 判断写反，`!` 被当成普通规则
+        self.assertTrue(Matcher(["a.txt"]).ignores("a.txt"))
+        self.assertFalse(Matcher(["!a.txt"]).ignores("a.txt"))
+        # 取反规则可以重新包含，且最后命中的规则说了算
+        m = Matcher(["*.txt", "!keep.txt"])
+        self.assertTrue(m.ignores("a.txt"))
+        self.assertFalse(m.ignores("keep.txt"))
+
+
 if __name__ == "__main__":
     unittest.main()
