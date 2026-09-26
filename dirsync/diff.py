@@ -24,8 +24,8 @@ def _entry_same(old: ManifestEntry, new: ManifestEntry) -> bool:
         # file 与 dir 互相切换、或与 symlink 切换，都算 modified
         return False
     if old.kind == KIND_FILE:
-        # 文件按 sha256 判修改，大小变了也算
-        return old.size == new.size
+        # 文件按 sha256 判修改（等长改写也能检出），大小变了也算
+        return old.size == new.size and old.sha256 == new.sha256
     if old.kind == KIND_SYMLINK:
         return old.target == new.target
     return True  # 目录只比较存在性

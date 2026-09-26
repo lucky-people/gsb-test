@@ -148,8 +148,8 @@ def apply(
     unchanged = diff.unchanged
     deleted = diff.removed if prune else []
 
-    # 核对 source 里每个待写文件，失败则抛错且此时未修改任何文件
-    _check_source_files(source_root, manifest, created)
+    # 核对 source 里每个待写文件（新建与待更新），失败则抛错且此时未修改任何文件
+    _check_source_files(source_root, manifest, created + updated)
 
     report = ApplyReport(
         created=created, updated=updated, deleted=deleted, unchanged=unchanged
@@ -203,6 +203,7 @@ def verify(root: str, manifest: Manifest) -> List[str]:
     else:
         current = Manifest([])
     diff = diff_manifests(manifest, current)
-    bad = diff.added + diff.removed
+    # 缺失、多余、内容/大小被篡改、kind 不符，全部算不符
+    bad = diff.added + diff.removed + diff.modified
     bad.sort()
     return bad
