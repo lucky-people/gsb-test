@@ -27,7 +27,8 @@ def normalize_path(path):
         raise PathError(path, "不支持盘符路径，请传入相对路径")
     parts = []
     for seg in p.split("/"):
-        if seg == ".":
+        if seg in ("", "."):
+            # 空段来自重复斜杠或结尾 `/`，折叠掉
             continue
         if seg == "..":
             raise PathError(path, '路径不能包含 ".." 段')

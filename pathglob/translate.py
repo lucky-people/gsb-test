@@ -35,10 +35,12 @@ def _translate_class(content):
             items.append(re.escape(content[i + 1]))
             i += 2
             continue
-        if c in ("\\", "]"):
-            items.append("\\" + c)
+        if c == "-" and items and i + 1 < n:
+            # 前后都有字符的 `-` 是区间连接符（如 a-z），原样保留；
+            # 位于开头或结尾的 `-` 按字面处理
+            items.append("-")
         else:
-            items.append("\\" + c)
+            items.append(re.escape(c))
         i += 1
     inner = "".join(items)
     if negated:
@@ -63,7 +65,7 @@ def _translate_segment(seg, original, base):
             # 段内的连续星号（如 a**b）退化为单个 `*` 的语义
             while i < n and seg[i] == "*":
                 i += 1
-            out.append(".*")
+            out.append("[^/]*")
             lit = None
         elif c == "?":
             out.append("[^/]")

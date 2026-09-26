@@ -156,6 +156,125 @@ class TestEscape(unittest.TestCase):
         self.assertTrue(p.matches("!important"))
 
 
+class TestCharClassRegression(unittest.TestCase):
+    """回归：字符类逐字符正确转义，`-` 在中间时是区间连接符。
+
+    回归背景：字符类曾给每个字符无脑加 `\\` 前缀，导致
+    `[abc]` 被翻译成 `[\\a\\b\\c]`（响铃/退格/c），`[a-z]` 的
+    区间 `-` 被转义成字面字符，区间退化成 a、-、z 三个字面量。
+    """
+
+    def assert_consistent(self, pattern, path, **kwargs):
+        """同一规则、同一路径，三个入口结论必须一致。"""
+        expected = compile_pattern(pattern, **kwargs).matches(path)
+        matcher = Matcher([compile_pattern(pattern, **kwargs)])
+        self.assertEqual(matcher.match(path) is not None, expected)
+        self.assertEqual(matcher.ignores(path), expected)
+
+    def test_class_matches_listed_chars_not_control_chars(self):
+        # [abc] 曾被翻译成 [\a\b\c]：响铃、退格、c
+        p = compile_pattern("[abc]", case_sensitive=True)
+        self.assertTrue(p.matches("a"))
+        self.assertTrue(p.matches("b"))
+        self.assertFalse(p.matches("\a"))   # 响铃不应命中
+        self.assertFalse(p.matches("\b"))   # 退格不应命中
+        self.assert_consistent("[abc]", "a", case_sensitive=True)
+        self.assert_consistent("[abc]", "\a", case_sensitive=True)
+
+    def test_range_dash_is_not_literal(self):
+        # [a-z] 的 `-` 是区间连接符，不是字面的 `-`
+        p = compile_pattern("[a-z]", case_sensitive=True)
+        self.assertTrue(p.matches("m"))
+        self.assertFalse(p.matches("-"))
+        self.assert_consistent("[a-z]", "-", case_sensitive=True)
+
+    def test_dash_at_edges_is_literal(self):
+        # 开头或结尾的 `-` 没有区间语义，按字面处理
+        for pat in ("[-a]", "[a-]"):
+            with self.subTest(pattern=pat):
+                p = compile_pattern(pat, case_sensitive=True)
+                self.assertTrue(p.matches("-"))
+                self.assertTrue(p.matches("a"))
+                self.assertFalse(p.matches("m"))
+
+    def test_escaped_dash_is_literal(self):
+        p = compile_pattern(r"[a\-z]", case_sensitive=True)
+        self.assertTrue(p.matches("-"))
+        self.assertFalse(p.matches("m"))
+
+    def test_negated_range_excludes_whole_range(self):
+        p = compile_pattern("[!a-z]", case_sensitive=True)
+        self.assertFalse(p.matches("m"))
+        self.assertTrue(p.matches("-"))
+        self.assertTrue(p.matches("0"))
+
+    def test_class_in_matcher_bucket_consistency(self):
+        # 含字符类的规则走通配符通道，三个入口结论一致
+        matcher = Matcher(["*.py[cod]"])
+        self.assertTrue(matcher.ignores("a.pyc"))
+        self.assertTrue(matcher.ignores("dir/a.pyd"))
+        self.assertFalse(matcher.ignores("a.py"))
+        self.assert_consistent("*.py[cod]", "a.pyc")
+        self.assert_consistent("*.py[cod]", "a.py")
+
+
+class TestStarWithinSegmentRegression(unittest.TestCase):
+    """回归：段内 `*` 匹配任意个非 `/` 字符，不跨目录。
+
+    回归背景：`*` 曾被翻译成 `.*`，导致 `build/*.tmp` 命中
+    `build/x/a.tmp` 这类跨目录路径。
+    """
+
+    def test_star_suffix_does_not_cross_directory(self):
+        p = compile_pattern("build/*.tmp")
+        self.assertTrue(p.matches("build/a.tmp"))
+        self.assertFalse(p.matches("build/x/a.tmp"))
+
+    def test_star_middle_does_not_cross_directory(self):
+        p = compile_pattern("src/*/main.py")
+        self.assertTrue(p.matches("src/mod/main.py"))
+        self.assertFalse(p.matches("src/a/b/main.py"))
+
+    def test_unanchored_star_matches_basename_only(self):
+        p = compile_pattern("*.tmp")
+        self.assertTrue(p.matches("x/y/a.tmp"))
+        self.assertFalse(p.matches("a.tmp/b"))
+
+    def test_three_entries_consistent(self):
+        for pattern, path in [
+            ("build/*.tmp", "build/x/a.tmp"),
+            ("build/*.tmp", "build/a.tmp"),
+            ("a/*/b", "a/x/y/b"),
+            ("a/*/b", "a/x/b"),
+        ]:
+            with self.subTest(pattern=pattern, path=path):
+                expected = compile_pattern(pattern).matches(path)
+                matcher = Matcher([pattern])
+                self.assertEqual(matcher.match(path) is not None, expected)
+                self.assertEqual(matcher.ignores(path), expected)
+
+
+class TestNormalizeCollapseRegression(unittest.TestCase):
+    """回归：normalize_path 折叠重复斜杠、去掉结尾 `/`。
+
+    回归背景：规范化曾保留空段，导致 `a//b` 与 `a/b` 结论不一致。
+    """
+
+    def test_repeated_slashes_collapse(self):
+        self.assertEqual(normalize_path("a//b"), "a/b")
+        self.assertEqual(normalize_path("a///b//c"), "a/b/c")
+        self.assertEqual(normalize_path("a/./b//"), "a/b")
+
+    def test_matching_consistent_with_or_without_extra_slashes(self):
+        for pattern in ("a/b", "a//b", "a/b/"):
+            with self.subTest(pattern=pattern):
+                p = compile_pattern(pattern)
+                self.assertEqual(p.matches("a//b"), p.matches("a/b"))
+        matcher = Matcher(["a/b"])
+        self.assertTrue(matcher.ignores("a//b"))
+        self.assertTrue(matcher.ignores("a/b"))
+
+
 class TestEscapeInMatcher(unittest.TestCase):
     """含转义的规则放进 Matcher 后必须与 Pattern.matches 结论一致。
 
