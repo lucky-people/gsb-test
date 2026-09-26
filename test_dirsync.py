@@ -349,5 +349,63 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestRegressions(TempDirCase):
+    """对账时发现的三类问题的定向回归测试。"""
+
+    def test_regression_ignore_last_match_wins_chain(self):
+        # 复现对账输入：先整体忽略 .log，再 ! 重新包含 keep.log，
+        # 最后再把 critical.log 打回去。首条命中即返回的实现会让后两条失效。
+        make_file(self.p("a.log"), b"a")
+        make_file(self.p("keep.log"), b"k")
+        make_file(self.p("critical.log"), b"c")
+        make_file(self.p("sub/keep.log"), b"k2")
+        make_file(self.p("sub/critical.log"), b"c2")
+        make_file(self.p("note.txt"), b"n")
+        ignore = ["*.log", "!keep.log", "critical.log"]
+        paths = snapshot(self.tmp, ignore=ignore).paths()
+        self.assertNotIn("a.log", paths)              # 首条规则忽略
+        self.assertIn("keep.log", paths)              # 后续 ! 规则重新包含
+        self.assertIn("sub/keep.log", paths)          # basename 命中 ! 规则
+        self.assertNotIn("critical.log", paths)       # 最后一条规则再次忽略
+        self.assertNotIn("sub/critical.log", paths)
+        self.assertIn("note.txt", paths)
+
+    def test_regression_same_size_rewrite_is_modified(self):
+        # 等长改写：大小不变、内容变，必须判为 modified 并重新写入。
+        make_file(self.p("src/data.bin"), b"AAAA")
+        manifest = snapshot(self.p("src"))
+        apply(self.p("src"), manifest, self.p("dst"))
+        # 源文件等长改写后重新快照
+        make_file(self.p("src/data.bin"), b"BBBB")
+        m2 = snapshot(self.p("src"))
+        d = diff_manifests(manifest, m2)
+        self.assertEqual(d.modified, ["data.bin"])
+        self.assertEqual(d.unchanged, [])
+        r = apply(self.p("src"), m2, self.p("dst"))
+        self.assertEqual(r.updated, ["data.bin"])
+        with open(self.p("dst/data.bin"), "rb") as f:
+            self.assertEqual(f.read(), b"BBBB")
+        self.assertEqual(verify(self.p("dst"), m2), [])
+
+    def test_regression_apply_reads_existing_target(self):
+        # 目标目录已有正确内容时，apply 必须读出现状而不是当空目录重建。
+        make_file(self.p("src/a.txt"), b"aaa")
+        make_file(self.p("src/sub/b.txt"), b"bbb")
+        manifest = snapshot(self.p("src"))
+        # 目标目录预先就是一致状态（例如上次同步的结果）
+        make_file(self.p("dst/a.txt"), b"aaa")
+        make_file(self.p("dst/sub/b.txt"), b"bbb")
+        r = apply(self.p("src"), manifest, self.p("dst"))
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 3)
+        # 连续第二次 apply 仍然全空（幂等）
+        r2 = apply(self.p("src"), manifest, self.p("dst"))
+        self.assertEqual(
+            (r2.created, r2.updated, r2.deleted), ([], [], [])
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

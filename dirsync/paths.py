@@ -131,7 +131,9 @@ def compile_rules(ignore: Iterable[str]) -> List[IgnoreRule]:
 
 def is_ignored(relpath: str, is_dir: bool, rules: List[IgnoreRule]) -> bool:
     """按顺序应用规则，最后匹配的规则决定是否忽略。"""
+    ignored = False
     for rule in rules:
         if rule.matches(relpath, is_dir):
-            return not rule.negated
-    return False
+            # 不提前返回：继续往后看，最后一条命中的规则生效
+            ignored = not rule.negated
+    return ignored

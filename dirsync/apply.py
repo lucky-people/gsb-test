@@ -137,7 +137,11 @@ def apply(
     for entry in manifest:
         _validate_entry(entry)
 
-    current = Manifest([])
+    # 以目标目录的实时快照为差异基准；目标不存在时按空目录处理
+    if os.path.isdir(target_root):
+        current = snapshot(target_root)
+    else:
+        current = Manifest([])
     diff = diff_manifests(current, manifest)
 
     created = diff.added
