@@ -161,6 +161,16 @@ class TestFormatBytes(unittest.TestCase):
         with self.assertRaises(FormatError):
             read_varint(b"\xff" * 9, 0)             # 超过 9 字节
 
+    def test_varint_large_values_roundtrip(self):
+        # 回归（lzpack-f01）：变长整数上限为 9 字节（63 位），
+        # 需要 6 字节以上的长整数必须能正常往返
+        for v in (1 << 35, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        self.assertEqual(len(encode_varint((1 << 63) - 1)), 9)
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 10, 0)            # 超过 9 字节
+
 
 class TestEdgeCases(unittest.TestCase):
     """边界与取舍。"""
@@ -236,6 +246,24 @@ class TestEdgeCases(unittest.TestCase):
         got = c.feed(head) + c.feed(tail) + c.finish()
         self.assertEqual(got, oneshot)
         self.assertEqual(lzpack.decompress(got), head + tail)
+
+    def test_overlap_match_decode(self):
+        # 回归（lzpack-f01）：偏移 < 长度的重叠匹配，解压时必须按 LZ77
+        # 语义逐字节重复（最近 off 字节循环），而不是切片截断
+        data = b"ab" * 50 + b"a"  # 字面量 "ab" + 匹配(偏移2, 长度99)
+        body = bytearray()
+        codec._emit_literals(body, b"ab")
+        body.append(0x80 | (99 - MIN_MATCH))
+        body += encode_varint(2 - 1)
+        blob = codec.build_header(len(data), codec.crc32(data), 6, 32768) + bytes(body)
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 流式逐字节喂入结果一致
+        self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 1), data)
+        # 各种周期的一字节/多字节重复往返
+        for period in (1, 2, 3, 7):
+            unit = bytes(range(1, period + 1))
+            rep = (unit * (5000 // period + 1))[:5000]
+            self.assertEqual(lzpack.decompress(lzpack.compress(rep)), rep)
 
     def test_crc_all_zero_and_all_ff(self):
         blob = bytearray(lzpack.compress(b"some payload" * 10))
