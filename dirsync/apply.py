@@ -137,7 +137,12 @@ def apply(
     for entry in manifest:
         _validate_entry(entry)
 
-    current = Manifest([])
+    # 读取目标目录现状：不存在则视为空目录；否则按实际快照计算差异，
+    # 保证幂等（已一致的条目进入 unchanged，不再重复写入）
+    if os.path.isdir(target_root):
+        current = snapshot(target_root)
+    else:
+        current = Manifest([])
     diff = diff_manifests(current, manifest)
 
     created = diff.added

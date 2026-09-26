@@ -349,5 +349,67 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestReconciliationRegressions(TempDirCase):
+    """对账发现的三类问题的针对性回归测试。"""
+
+    def test_regression_ignore_last_match_wins(self):
+        # 对账输入：先按扩展名忽略，再用 ! 把个别文件重新包含回来。
+        # 若实现变成「第一条命中就返回」，后面的 ! 规则会整体失效。
+        make_file(self.p("logs/error.log"), b"e")
+        make_file(self.p("logs/keep.log"), b"k")
+        make_file(self.p("cache/index.json"), b"{}")
+        make_file(self.p("cache/data.bin"), b"d")
+        ignore = ["*.log", "!keep.log", "cache/*", "!cache/index.json"]
+        paths = snapshot(self.tmp, ignore=ignore).paths()
+        self.assertNotIn("logs/error.log", paths)
+        self.assertIn("logs/keep.log", paths)       # ! 重新包含必须生效
+        self.assertNotIn("cache/data.bin", paths)
+        self.assertIn("cache/index.json", paths)    # 子树内也可重新包含
+        # 顺序反过来：最后一条 *.log 生效，keep.log 也被忽略
+        paths2 = snapshot(self.tmp, ignore=["!keep.log", "*.log"]).paths()
+        self.assertNotIn("logs/keep.log", paths2)
+
+    def test_regression_equal_size_rewrite_is_modified(self):
+        # 对账输入：等长改写（大小不变、内容变）必须判为 modified，
+        # 不能只比 size。
+        src = self.p("src")
+        dst = self.p("dst")
+        os.makedirs(src)
+        make_file(self.p("src/data.bin"), b"AAAA")
+        m1 = snapshot(src)
+        apply(src, m1, dst)
+        make_file(self.p("src/data.bin"), b"BBBB")  # 等长改写
+        m2 = snapshot(src)
+        d = diff_manifests(m1, m2)
+        self.assertEqual(d.modified, ["data.bin"])
+        self.assertEqual(d.unchanged, [])
+        r = apply(src, m2, dst)
+        self.assertEqual(r.updated, ["data.bin"])
+        with open(self.p("dst/data.bin"), "rb") as f:
+            self.assertEqual(f.read(), b"BBBB")
+
+    def test_regression_apply_reads_existing_target(self):
+        # 对账输入：目标目录已有一致内容时，apply 必须基于现状计算差异，
+        # 不能当成空目录重建（created 应为空、全部 unchanged，且幂等）。
+        src = self.p("src")
+        dst = self.p("dst")
+        os.makedirs(src)
+        make_file(self.p("src/a.txt"), b"aaa")
+        make_file(self.p("src/sub/b.txt"), b"bbb")
+        manifest = snapshot(src)
+        shutil.copytree(src, dst)  # 目标预先已是一致状态
+        r = apply(src, manifest, dst)
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 3)
+        # 连续第二次 apply 同样全空，幂等
+        r2 = apply(src, manifest, dst)
+        self.assertEqual(r2.created, [])
+        self.assertEqual(r2.updated, [])
+        self.assertEqual(r2.deleted, [])
+        self.assertEqual(r2.unchanged_count, 3)
+
+
 if __name__ == "__main__":
     unittest.main()
