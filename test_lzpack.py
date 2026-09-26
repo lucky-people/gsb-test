@@ -8,7 +8,7 @@ import lzpack
 from lzpack import codec
 from lzpack.errors import ConfigError, FormatError
 from lzpack.lz77 import MAX_MATCH, MIN_MATCH, find_tokens
-from lzpack.varint import encode_varint, read_varint
+from lzpack.varint import MAX_VARINT_BYTES, encode_varint, read_varint
 
 LOG_LINE = b"2026-09-24 12:00:00 INFO  [worker-3] request handled in 12ms\n"
 
@@ -317,6 +317,59 @@ class TestEdgeCases(unittest.TestCase):
             for window in (1024, 32768, 1 << 20):
                 blob = lzpack.compress(data, level=level, window=window)
                 self.assertEqual(lzpack.decompress(blob), data)
+
+
+class TestRegressions(unittest.TestCase):
+    """lzpack-f04 三处根因的回归测试（每处根因一条）。"""
+
+    def test_regression_prev_table_indexed_mod_window(self):
+        # 根因 1（lzpack/lz77.py）：哈希链前驱表 prev 是 window 大小的
+        # 环形数组，写入下标必须按 window 取模；否则数据长度超过 window
+        # 时会越界或在链上取到错位的历史位置。
+        rng = random.Random(20260926)
+        block = rng.randbytes(512)
+        data = (block + rng.randbytes(3000)) * 3 + block
+        for window in (1024, 4096):
+            self.assertGreater(len(data), window)
+            blob = lzpack.compress(data, window=window)
+            self.assertEqual(lzpack.decompress(blob), data)
+            for token in find_tokens(data, 6, window):
+                if token[0] == "m":
+                    self.assertGreaterEqual(token[1], 1)
+                    self.assertLessEqual(token[1], window)
+
+    def test_regression_literal_block_length(self):
+        # 根因 2（lzpack/codec.py）：字面量块长度 = 标签 + 1（1..128），
+        # 解码端多算一个字节会导致块边界错位、后续 token 全部解析错误。
+        data = bytes(range(128))  # 无 3 字节重复，必存为单个字面量块
+        blob = lzpack.compress(data, level=1)
+        p = 6  # 跳过变长的长度字段，定位数据块起点
+        while blob[p] & 0x80:
+            p += 1
+        start = p + 1 + 1 + 4  # 长度字段 + 头部校验 + CRC32
+        self.assertEqual(blob[start], 0x7F)              # 标签 = 长度 - 1
+        self.assertEqual(blob[start + 1:start + 129], data)  # 恰好 128 个原样字节
+        self.assertEqual(len(blob), start + 1 + 128)
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_varint_max_bytes(self):
+        # 根因 3（lzpack/varint.py）：变长整数上限是 9 字节（63 位），
+        # 改小后长整数（如大文件的原始长度字段）编解码不再往返。
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        big = (1 << 63) - 1
+        enc = encode_varint(big)
+        self.assertEqual(len(enc), 9)
+        self.assertEqual(read_varint(enc, 0), (big, 9))
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 9, 0)
+        # 头部声明超大原始长度（长度字段超过 5 字节）的流必须能解析，
+        # 并因数据缺失抛 FormatError 而不是误报“变长整数未终止”。
+        meta = bytes([1, (5 << 4) | 6])
+        len_field = encode_varint(1 << 40)
+        check = codec.crc32(meta + len_field) & 0xFF
+        blob = codec.MAGIC + meta + len_field + bytes([check]) + b"\x00" * 4
+        with self.assertRaises(FormatError):
+            lzpack.decompress(blob)
 
 
 if __name__ == "__main__":
