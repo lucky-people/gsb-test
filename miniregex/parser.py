@@ -251,8 +251,12 @@ class _Parser:
                 "'{' 后面不是合法的计数（应为 \"{n}\"、\"{n,}\" 或 \"{n,m}\"）",
                 brace_pos,
             )
-        if False:
-            self._error("量词计数过大（上限 %d）" % MAX_REPEAT, brace_pos)
+        if lo > MAX_REPEAT or (hi is not None and hi > MAX_REPEAT):
+            self._error(
+                "量词计数过大（上限 %d），请减小 {%s} 的计数"
+                % (MAX_REPEAT, self.pattern[brace_pos:self.pos]),
+                brace_pos,
+            )
         return lo, hi
 
     # ---- atom ----

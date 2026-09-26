@@ -356,5 +356,36 @@ class TestMisc(unittest.TestCase):
         self.assertIn("aa", repr(m))
 
 
+class TestReconciliationRegressions(unittest.TestCase):
+    """对账回归：逐条复现与参考实现比对时发现的三类不一致。"""
+
+    def test_backref_to_unmatched_group_is_failure_not_empty(self):
+        # 组未参与匹配时反向引用必须失败，而不是按空串放行
+        r = compile_pattern(r"(\d+)?-\1")
+        self.assertIsNone(r.match("-"))
+        self.assertEqual(r.match("5-5").group(0), "5-5")
+        # 大小写不敏感下同样判定
+        r2 = compile_pattern(r"(ab)?x\1", case_sensitive=False)
+        self.assertIsNone(r2.match("x"))
+        self.assertEqual(r2.match("ABxAb").group(0), "ABxAb")
+
+    def test_oversized_repeat_rejected_at_boundary(self):
+        # 上限 10000：边界可用，越界（含区间上限）报 PatternError
+        self.assertEqual(
+            compile_pattern("a{10000}").match("a" * 10000).end(), 10000)
+        for pat in ("a{10001}", "a{0,10001}", "a{20000,30000}"):
+            with self.assertRaises(PatternError) as ctx:
+                compile_pattern(pat)
+            self.assertEqual(ctx.exception.position, 1)
+
+    def test_dot_never_crosses_newline_unless_dot_all(self):
+        # 默认与 multiline 下 '.' 都不跨行，仅 dot_all 放行
+        self.assertEqual(compile_pattern(".+").match("ab\ncd").group(0), "ab")
+        self.assertEqual(
+            compile_pattern(".+", multiline=True).match("ab\ncd").group(0), "ab")
+        self.assertEqual(
+            compile_pattern(".+", dot_all=True).match("ab\ncd").group(0), "ab\ncd")
+
+
 if __name__ == "__main__":
     unittest.main()
