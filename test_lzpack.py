@@ -8,7 +8,7 @@ import lzpack
 from lzpack import codec
 from lzpack.errors import ConfigError, FormatError
 from lzpack.lz77 import MAX_MATCH, MIN_MATCH, find_tokens
-from lzpack.varint import encode_varint, read_varint
+from lzpack.varint import MAX_VARINT_BYTES, encode_varint, read_varint
 
 LOG_LINE = b"2026-09-24 12:00:00 INFO  [worker-3] request handled in 12ms\n"
 
@@ -315,6 +315,60 @@ class TestEdgeCases(unittest.TestCase):
         data = (LOG_LINE * 50) + bytes(range(256)) * 20
         for level in (1, 5, 9):
             for window in (1024, 32768, 1 << 20):
+                blob = lzpack.compress(data, level=level, window=window)
+                self.assertEqual(lzpack.decompress(blob), data)
+
+
+class TestRegressionsF03(unittest.TestCase):
+    """工单 lzpack-f03 的回归测试：变长整数上限 / 位移步长 / 重叠匹配。"""
+
+    def test_varint_max_bytes_is_9(self):
+        # 回归：上限曾被改小成 5 字节，长整数无法往返
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 21, 1 << 35, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 63 位最大值正好占满 9 字节
+        self.assertEqual(len(encode_varint((1 << 63) - 1)), 9)
+        # 超过 9 字节仍不终止：FormatError
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 10, 0)
+
+    def test_varint_shift_step_is_7(self):
+        # 回归：位移步长曾被错写成 8，多字节数值解码错误
+        self.assertEqual(read_varint(b"\x80\x01", 0), (128, 2))
+        self.assertEqual(read_varint(b"\xac\x02", 0), (300, 2))
+        self.assertEqual(encode_varint(300), b"\xac\x02")
+        for v in (128, 300, 16384, 1 << 20, 1 << 40):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+
+    def test_overlap_match_offset_less_than_length(self):
+        # 回归：偏移 < 长度的重叠匹配，解压必须按周期 off 展开
+        # 手工构造流：字面量 "ab" + 匹配(偏移 2, 长度 998)
+        raw = b"ab" * 500
+        body = b"\x01ab"                       # 字面量块，长度 2
+        body += b"\xff" + encode_varint(998 - MIN_MATCH - 0x7F)  # 长匹配标签
+        body += encode_varint(2 - 1)           # 偏移 - 1
+        blob = codec.build_header(len(raw), codec.crc32(raw), 6, 32768) + body
+        self.assertEqual(lzpack.decompress(blob), raw)
+        # 连续同一字节：字面量 "x" + 匹配(偏移 1, 长度 499)
+        raw = b"x" * 500
+        body = b"\x00x"
+        body += b"\xff" + encode_varint(499 - MIN_MATCH - 0x7F)
+        body += encode_varint(1 - 1)
+        blob = codec.build_header(len(raw), codec.crc32(raw), 6, 32768) + body
+        self.assertEqual(lzpack.decompress(blob), raw)
+
+    def test_overlap_match_chunked_feeds(self):
+        # 回归：重叠匹配在逐字节流式喂入下结果不变
+        data = LOG_LINE * 2000
+        blob = lzpack.compress(data)
+        self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 1), data)
+        # 重复日志行 + 短周期重复，多种 level / window 组合
+        for level in (1, 6, 9):
+            for window in (1024, 32768):
                 blob = lzpack.compress(data, level=level, window=window)
                 self.assertEqual(lzpack.decompress(blob), data)
 
