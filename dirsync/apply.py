@@ -137,13 +137,15 @@ def apply(
     for entry in manifest:
         _validate_entry(entry)
 
-    current = Manifest([])
+    # 基于目标目录的实时快照计算差异，保证幂等与增量更新
+    current = snapshot(target_root) if os.path.isdir(target_root) else Manifest([])
     diff = diff_manifests(current, manifest)
 
     created = diff.added
     updated = diff.modified
     unchanged = diff.unchanged
-    deleted = diff.removed
+    # prune=False 时保留目标里清单外的多余条目
+    deleted = diff.removed if prune else []
 
     # 核对 source 里每个待写文件，失败则抛错且此时未修改任何文件
     _check_source_files(source_root, manifest, created + updated)

@@ -23,6 +23,7 @@ from dirsync import (
     verify,
 )
 from dirsync.manifest import CHUNK_SIZE
+from dirsync.paths import validate_relpath
 
 
 def make_file(path, data):
@@ -146,6 +147,14 @@ class TestManifestJson(TempDirCase):
                                "entries": [entry]})
             with self.assertRaises(ManifestError, msg=f"应拒绝路径 {path!r}"):
                 Manifest.from_json(text)
+
+    def test_backslash_rejected_by_validate_relpath(self):
+        # 回归：反斜杠必须被拦截，不能静默进入清单
+        for path in ("a\\b", "a\\", "\\a", "a\\b\\c"):
+            with self.assertRaises(ManifestError, msg=f"应拒绝路径 {path!r}"):
+                validate_relpath(path)
+        # 正斜杠路径不受影响
+        self.assertEqual(validate_relpath("a/b/c.txt"), "a/b/c.txt")
 
     def test_duplicate_path(self):
         entry = {"path": "a", "kind": "dir", "size": 0,
@@ -319,6 +328,35 @@ class TestApply(TempDirCase):
         r = apply(self.src, m2, self.dst)
         self.assertIn("a.txt", r.updated)
         self.assertEqual(verify(self.dst, m2), [])
+
+    def test_apply_reads_existing_target_state(self):
+        # 回归：apply 必须基于目标目录的实时快照计算差异，
+        # 已一致的文件不能被重写（inode 不变），只补缺失条目
+        apply(self.src, self.manifest, self.dst)
+        ino_before = os.stat(self.p("dst/a.txt")).st_ino
+        os.unlink(self.p("dst/sub/b.txt"))
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.created, ["sub/b.txt"])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertIn("a.txt", r.unchanged)
+        self.assertEqual(os.stat(self.p("dst/a.txt")).st_ino, ino_before)
+        self.assertEqual(verify(self.dst, self.manifest), [])
+
+    def test_prune_false_preserves_extra_tree(self):
+        # 回归：prune=False 时目标里多余的整棵子树都要保留
+        apply(self.src, self.manifest, self.dst)
+        make_file(self.p("dst/extra/deep/x.txt"), b"x")
+        r = apply(self.src, self.manifest, self.dst, prune=False)
+        self.assertEqual(r.deleted, [])
+        self.assertTrue(os.path.isfile(self.p("dst/extra/deep/x.txt")))
+        # dry_run + prune=False 同样不报告删除
+        r2 = apply(self.src, self.manifest, self.dst, dry_run=True, prune=False)
+        self.assertEqual(r2.deleted, [])
+        # prune=True 时多余子树被完整清除并出现在报告里
+        r3 = apply(self.src, self.manifest, self.dst, prune=True)
+        self.assertEqual(r3.deleted, ["extra", "extra/deep", "extra/deep/x.txt"])
+        self.assertFalse(os.path.exists(self.p("dst/extra")))
 
 
 class TestVerify(TempDirCase):
