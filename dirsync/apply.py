@@ -174,6 +174,8 @@ def apply(
         entry = entries[rel]
         old_kind = current_kinds.get(rel)
         dst = os.path.join(target_root, rel)
+        if old_kind is not None and old_kind != entry.kind and os.path.lexists(dst):
+            _remove_path(dst)
 
     # 3. 处理 created / updated（按字典序，保证父目录先于子条目创建）
     for rel in sorted(created + updated):

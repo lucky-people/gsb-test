@@ -349,5 +349,74 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestRegressions(TempDirCase):
+    """dirsync-f09 批次四类缺陷的回归用例。"""
+
+    # 缺陷 1：忽略规则必须「最后命中生效」，! 重新包含不能被前面的规则吞掉
+    def test_regression_ignore_last_match_wins_chain(self):
+        make_file(self.p("a.log"), b"1")
+        make_file(self.p("b.log"), b"2")
+        make_file(self.p("keep.log"), b"3")
+        # 三条规则链：忽略全部 .log -> 重新包含 keep.log -> 再忽略 b.log
+        paths = snapshot(self.tmp, ignore=["*.log", "!keep.log", "b.log"]).paths()
+        self.assertNotIn("a.log", paths)
+        self.assertNotIn("b.log", paths)
+        self.assertIn("keep.log", paths)
+
+    # 缺陷 2：同路径 kind 变化必须算 modified，不能漏进 unchanged
+    def test_regression_diff_kind_switch_modified(self):
+        old = Manifest([
+            ManifestEntry("x", "file", 1, "a" * 64, None),
+            ManifestEntry("y", "symlink", 0, None, "t"),
+        ])
+        new = Manifest([
+            ManifestEntry("x", "symlink", 0, None, "t"),
+            ManifestEntry("y", "dir"),
+        ])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["x", "y"])
+        self.assertEqual(d.unchanged, [])
+
+    # 缺陷 3：dir -> file 切换时先删旧目录再建文件，不能撞车
+    def test_regression_apply_dir_to_file(self):
+        os.makedirs(self.p("src"))
+        make_file(self.p("src/item/inner.txt"), b"i")
+        m1 = snapshot(self.p("src"))
+        apply(self.p("src"), m1, self.p("dst"))
+        shutil.rmtree(self.p("src/item"))
+        make_file(self.p("src/item"), b"now-a-file")
+        m2 = snapshot(self.p("src"))
+        r = apply(self.p("src"), m2, self.p("dst"))
+        self.assertIn("item", r.updated)
+        with open(self.p("dst/item"), "rb") as f:
+            self.assertEqual(f.read(), b"now-a-file")
+        self.assertEqual(verify(self.p("dst"), m2), [])
+
+    # 缺陷 3：file -> symlink 切换时先删旧文件再建链接
+    def test_regression_apply_file_to_symlink(self):
+        make_file(self.p("src/real.txt"), b"r")
+        make_file(self.p("src/link"), b"old")
+        m1 = snapshot(self.p("src"))
+        apply(self.p("src"), m1, self.p("dst"))
+        os.unlink(self.p("src/link"))
+        os.symlink("real.txt", self.p("src/link"))
+        m2 = snapshot(self.p("src"))
+        r = apply(self.p("src"), m2, self.p("dst"))
+        self.assertIn("link", r.updated)
+        self.assertTrue(os.path.islink(self.p("dst/link")))
+        self.assertEqual(os.readlink(self.p("dst/link")), "real.txt")
+        self.assertEqual(verify(self.p("dst"), m2), [])
+
+    # 缺陷 4：反斜杠路径必须被拒绝，不能静默进清单
+    def test_regression_backslash_paths_rejected(self):
+        for path in ["a\\b", "a\\b\\c", "\\", "..\\up"]:
+            entry = {"path": path, "kind": "dir", "size": 0,
+                     "sha256": None, "target": None}
+            text = json.dumps({"format": "dirsync-manifest", "version": 1,
+                               "entries": [entry]})
+            with self.assertRaises(ManifestError, msg=f"应拒绝路径 {path!r}"):
+                Manifest.from_json(text)
+
+
 if __name__ == "__main__":
     unittest.main()

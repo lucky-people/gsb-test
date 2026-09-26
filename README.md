@@ -122,6 +122,10 @@ python3 -m unittest test_dirsync -v
 diff 四类结果、apply 原子性与幂等、prune 开关、dry_run、
 源文件被改动时报错、verify 检出篡改与多余条目。
 
+另含 dirsync-f09 批次回归用例（`TestRegressions`）：忽略规则多条链式
+「最后命中生效」、diff 对 file/dir/symlink 互切判 modified、apply 在
+dir→file 与 file→symlink 切换时先删旧节点、反斜杠路径拒绝。
+
 ## 模块结构
 
 | 模块 | 职责 |
