@@ -149,6 +149,16 @@ class TestFormatBytes(unittest.TestCase):
         # 字面量 'a' + 匹配(偏移1, 长度3)：00 61 80 00
         self.assertEqual(blob[12:], b"\x00a\x80\x00")
 
+    def test_match_length_encoding_boundaries(self):
+        # 回归：匹配标签存的是“长度 - 3”（0x80..0xFE 表示 3..129），
+        # 0xFF 长匹配后的变长整数存“长度 - 130”
+        blob = lzpack.compress(b"a" * 130, level=1, window=1024)
+        # 头部 13 字节（长度字段 130 占 2 字节变长整数）
+        self.assertEqual(blob[13:], b"\x00a\xfe\x00")       # 长度 129 -> 0xFE
+        blob = lzpack.compress(b"a" * 131, level=1, window=1024)
+        self.assertEqual(blob[13:], b"\x00a\xff\x00\x00")   # 长度 130 -> 0xFF + varint(0)
+        self.assertEqual(lzpack.decompress(blob), b"a" * 131)
+
     def test_varint_roundtrip(self):
         for v in (0, 1, 127, 128, 300, 16384, 1 << 20, 1 << 40):
             enc = encode_varint(v)
@@ -214,6 +224,32 @@ class TestEdgeCases(unittest.TestCase):
                     found = True
                 pos += token[2]
         self.assertTrue(found, "距离正好等于 window 的重复没有被匹配")
+
+    def test_hash_chain_prev_ring_buffer(self):
+        # 回归：prev 是 window 大小的环形数组，下标必须按窗口取模。
+        # 输入超过 window 时旧实现直接 IndexError；绕环后仍要能找到
+        # 窗口内（含距离正好等于 window）的匹配。
+        rng = random.Random(21)
+        window = 1024
+        filler1 = bytes(rng.choices(range(256), k=1500))
+        block = bytes(rng.choices(range(256), k=100))
+        filler2 = bytes(rng.choices(range(256), k=924))
+        data = filler1 + block + filler2 + block  # 第二个 block 在 2524，距离正好 1024
+        tokens = list(find_tokens(data, 9, window))
+        pos = 0
+        found = False
+        for token in tokens:
+            if token[0] == "l":
+                pos += len(token[1])
+            else:
+                self.assertLessEqual(token[1], window)
+                if pos == 2524:
+                    self.assertEqual(token[1:], (window, 100))
+                    found = True
+                pos += token[2]
+        self.assertTrue(found, "绕环后未能找到距离等于 window 的匹配")
+        self.assertEqual(
+            lzpack.decompress(lzpack.compress(data, window=window)), data)
 
     def test_repeat_beyond_window_not_matched(self):
         rng = random.Random(13)

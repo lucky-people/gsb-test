@@ -109,7 +109,9 @@ def encode_tokens(data, level, window, out):
             _emit_literals(out, token[1])
         else:
             _, off, length = token
-            code = length
+            # 标签存的是“长度 - MIN_MATCH”：0x80..0xFE 表示 3..129，
+            # 0xFF 后的变长整数存“长度 - 130”，与格式说明及解码器一致
+            code = length - MIN_MATCH
             if code < 0x7F:
                 out.append(0x80 | code)
             else:
