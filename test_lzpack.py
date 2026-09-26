@@ -319,5 +319,47 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """对账发现的三类问题的定向回归测试。"""
+
+    def test_regression_level_upper_bound(self):
+        # level 上界是 9：10 曾经不抛 ConfigError，直到 _CHAIN_DEPTH[10] KeyError
+        lzpack.compress(b"x", level=9)  # 边界内最大合法值
+        for bad in (10, 11, 255):
+            with self.assertRaises(ConfigError):
+                lzpack.compress(b"x", level=bad)
+            with self.assertRaises(ConfigError):
+                lzpack.Compressor(level=bad)
+
+    def test_regression_prev_table_ring_index(self):
+        # prev 是 window 大小的环形表：输入超过 window 后，
+        # 位置 i 的前驱必须写到 prev[i & (window-1)]，否则越界 / 链上错位。
+        # 修复前该输入在 i 走到 window 处直接 IndexError。
+        rng = random.Random(20260926)
+        prefix = rng.randbytes(1500)   # 不可压缩前缀，迫使 i 逐字节越过 window
+        data = prefix + prefix[900:1000]  # 末尾重复 offset=600 的一段
+        tokens = list(find_tokens(data, 6, 1024))
+        matches = [t for t in tokens if t[0] == "m"]
+        self.assertIn(("m", 600, 100), matches,
+                      "i 越过 window 后链上应仍能找到 offset=600 的匹配")
+        for _, off, length in matches:
+            self.assertLessEqual(off, 1024)
+        self.assertEqual(
+            lzpack.decompress(lzpack.compress(data, window=1024)), data)
+
+    def test_regression_literal_block_length(self):
+        # 字面量块：长度 = 标签 + 1。修复前解码按 标签 + 2 读，
+        # 会把下一个 token 的标签字节吞进字面量，导致流错位 / 误报截断。
+        data = b"abcdefgh"
+        blob = lzpack.compress(data)
+        self.assertEqual(blob[12:], b"\x07" + data)  # 标签 7 = 长度 8 - 1
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 边界：128 字节整块（标签 127）与 129 字节（127 + 1 两块）
+        rng = random.Random(20260926)
+        for size in (127, 128, 129):
+            part = rng.randbytes(size)
+            self.assertEqual(lzpack.decompress(lzpack.compress(part)), part)
+
+
 if __name__ == "__main__":
     unittest.main()

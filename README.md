@@ -113,6 +113,37 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 - 长度字段与实际不符、头部 4 字节不是魔数、任意截断：`FormatError`；
 - 不可压缩数据：原样存储为字面量块，膨胀约 0.8%。
 
+## 验收判定口径
+
+与参考实现对账 / 上线前验收时，按以下口径判定（均有对应测试）：
+
+- **正确性**：`decompress(compress(x)) == x`；一次性 `compress` 与流式
+  `Compressor`（任意分块喂入）的输出**逐字节相同**，`Decompressor`
+  任意分块喂入的解压结果与一次性相同；
+- **健壮性**：压缩流任意一个字节被翻转、或在任意长度被截断，
+  `decompress` 必须抛 `FormatError`，不得静默返回数据；
+- **窗口约束**：匹配偏移 `1 <= 偏移 <= window`（允许等于 window），
+  重复间隔超过 window 的内容只能退化为字面量；解压端按头部声明的
+  window 校验偏移，越界即 `FormatError`；
+- **参数校验**：`level` 只接受 1..9，`window` 只接受 1KB..1MB 之间
+  2 的幂，越界抛 `ConfigError`；
+- **压缩率与性能**：`bench.py` 三组数据（1 MB 随机 / 1 MB 重复 /
+  10 MB 日志）的压缩率不低于 100.97% / 0.16% / 0.11% 的基线；
+  压缩耗时不超过解压耗时的 20 倍（`test_5_compress_not_quadratic`）。
+
+### 回归测试（对账问题定向覆盖）
+
+`test_lzpack.py` 中的 `TestRegressions` 针对历史对账发现的三类问题：
+
+- `test_regression_level_upper_bound`：level 上界为 9，
+  10 及以上必须抛 `ConfigError`（而不是在哈希链深度表处 KeyError）；
+- `test_regression_prev_table_ring_index`：哈希链前驱表 `prev` 是
+  window 大小的环形数组，下标必须按 `i & (window-1)` 取模；
+  用“不可压缩前缀越过 window + 窗口内重复”的输入验证链上取到
+  正确的历史位置；
+- `test_regression_literal_block_length`：字面量块长度 = 标签 + 1，
+  逐字节断言编码布局，并覆盖 127/128/129 的分块边界。
+
 ## 本机实测
 
 环境：Python 3.14.4，Linux x86-64。耗时与内存分开测量
