@@ -159,11 +159,13 @@ normalize_path("src\\main.py")       # -> 'src/main.py'
 ## 测试
 
 ```bash
-python3 -m unittest test_pathglob -v   # 50 个用例
+python3 -m unittest test_pathglob -v   # 62 个用例
 python3 bench.py                        # 性能基准
 ```
 
 覆盖：`*` 与 `**` 差异、锚定、目录规则、字符类与取反、转义、
 `!` 重新包含与最后匹配优先、路径规范化与非法路径、大小写模式、
 非 ASCII 与空格文件名、4096 字符超长路径、`!` 规则无前置规则、
+三入口一致性不变量（`Pattern.matches` / `Matcher.ignores` /
+`Matcher.match`）、三组历史缺陷的回归用例，
 以及 500 路径 × 50 规则的性能用例。

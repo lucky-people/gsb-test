@@ -116,13 +116,15 @@ class Pattern:
 
     def _matches(self, norm, norm_cf, is_dir):
         """在已规范化的路径上匹配（Matcher 内部复用，避免重复规范化）。"""
-        target = norm
+        # 大小写不敏感时按 casefold 后的路径比较（模式侧已在编译期 casefold）
+        target = norm if self.case_sensitive else norm_cf
         m = self._regex.match(target)
         if m is None:
             return False
         if self.directory_only and not is_dir:
-            # 目录规则：is_dir=False 时只有“位于该目录之下”才算命中
-            return False
+            # 目录规则：is_dir=False 时目录自身不算命中，
+            # 但位于其下任意层级的内容（inside 捕获组非空）必须命中
+            return m.group("inside") is not None
         return True
 
     def __repr__(self):

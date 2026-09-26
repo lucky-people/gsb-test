@@ -151,7 +151,7 @@ def translate(body, anchored, directory_only, original, offset):
                 parts.append("(?:/.*)?" if need_slash else ".*")
             else:
                 # 中间 `/**/`：匹配零层或多层目录
-                parts.append("/.*/" if need_slash else ".*/")
+                parts.append("/(?:.*/)?" if need_slash else "(?:.*/)?")
                 need_slash = False
             continue
         seg_re, seg_lit = _translate_segment(seg, original, offset + segpos)

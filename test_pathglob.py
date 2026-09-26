@@ -284,6 +284,49 @@ class TestNegationAndOrder(unittest.TestCase):
         self.assertTrue(m.ignores("build/x.o"))
 
 
+class TestRegressionThreeGroups(unittest.TestCase):
+    """三组成因（大小写 / 目录子树 / `**` 零层）的回归测试。
+
+    只新增用例，不改动既有测试；三个入口对同一规则同一路径
+    结论一致的不变量见 TestMatcherEscapeConsistency。
+    """
+
+    def test_casefold_default_and_explicit_sensitive(self):
+        # 默认不敏感：模式与路径都按 casefold 比较
+        self.assertTrue(compile_pattern("*.LOG").matches("a.log"))
+        # 显式敏感：按原样比较，且不受默认规则影响
+        p = compile_pattern("*.LOG", case_sensitive=True)
+        self.assertFalse(p.matches("a.log"))
+        self.assertTrue(p.matches("a.LOG"))
+
+    def test_double_star_zero_levels_at_boundary(self):
+        p = compile_pattern("**/x")
+        self.assertTrue(p.matches("x"))  # 零层目录
+        self.assertTrue(p.matches("a/b/x"))
+        self.assertFalse(p.matches("x/y"))
+
+    def test_directory_rule_deep_subtree(self):
+        p = compile_pattern("build/")
+        self.assertTrue(p.matches("build/a/b/c"))  # 任意层级内容
+        self.assertTrue(p.matches("build/a/b/c", is_dir=True))
+        self.assertFalse(p.matches("build", is_dir=False))
+        self.assertTrue(p.matches("build", is_dir=True))
+
+    def test_matcher_agrees_on_three_groups(self):
+        # 同一规则同一路径：Pattern 与 Matcher 两个入口结论一致
+        for pat, path in [
+            ("*.LOG", "a.log"),
+            ("**/x", "x"),
+            ("a/**/b", "a/b"),
+            ("build/", "build/a/b"),
+        ]:
+            with self.subTest(pat=pat, path=path):
+                expected = compile_pattern(pat).matches(path)
+                m = Matcher([pat])
+                self.assertEqual(m.ignores(path), expected)
+                self.assertEqual(m.match(path) is not None, expected)
+
+
 class TestNormalizePath(unittest.TestCase):
     def test_backslash_becomes_slash(self):
         self.assertEqual(normalize_path("a\\b\\c"), "a/b/c")
