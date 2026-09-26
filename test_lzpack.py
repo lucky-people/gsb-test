@@ -8,7 +8,7 @@ import lzpack
 from lzpack import codec
 from lzpack.errors import ConfigError, FormatError
 from lzpack.lz77 import MAX_MATCH, MIN_MATCH, find_tokens
-from lzpack.varint import encode_varint, read_varint
+from lzpack.varint import MAX_VARINT_BYTES, encode_varint, read_varint
 
 LOG_LINE = b"2026-09-24 12:00:00 INFO  [worker-3] request handled in 12ms\n"
 
@@ -317,6 +317,38 @@ class TestEdgeCases(unittest.TestCase):
             for window in (1024, 32768, 1 << 20):
                 blob = lzpack.compress(data, level=level, window=window)
                 self.assertEqual(lzpack.decompress(blob), data)
+
+
+class TestRegressions(unittest.TestCase):
+    """lzpack-f06 三处根因的回归测试。"""
+
+    def test_regression_varint_allows_nine_bytes(self):
+        # 根因：MAX_VARINT_BYTES 被误改为 5，长整数编码后无法读回
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 35, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        self.assertEqual(len(encode_varint((1 << 63) - 1)), 9)
+
+    def test_regression_literal_tag_is_length_minus_one(self):
+        # 根因：字面量块标签发的是长度本身，解码端按“标签 + 1”整块多吃一字节
+        for n in (1, 2, 127, 128, 129, 300):
+            data = random.Random(n).randbytes(n)
+            self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+        # 单个 128 字节字面量块：标签必须是 127（长度 - 1），内容原样跟随
+        data = random.Random(5).randbytes(128)
+        blob = lzpack.compress(data)
+        self.assertEqual(blob[-129], 127)
+        self.assertEqual(blob[-128:], data)
+
+    def test_regression_overlap_match_copy(self):
+        # 根因：解码端用静态切片拷贝匹配，偏移 < 长度（重叠回引）时内容错位
+        for data in (b"a" * 1000, b"ab" * 500, LOG_LINE * 200):
+            self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+        # 手工构造流：字面量 'ab' + 匹配(偏移 2, 长度 8)，应展开为 b"ab" * 5
+        body = b"\x01ab" + bytes([0x80 | (8 - 3), 2 - 1])
+        head = codec.build_header(10, codec.crc32(b"ab" * 5), 6, 32768)
+        self.assertEqual(lzpack.decompress(head + body), b"ab" * 5)
 
 
 if __name__ == "__main__":

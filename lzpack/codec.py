@@ -98,7 +98,7 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        out.append(len(part) - 1)
         out += part
 
 
@@ -256,7 +256,14 @@ class Decompressor:
                     raise FormatError(
                         self._base + pos,
                         "匹配偏移 %d 超出已解码数据量 %d" % (off, len(out)))
-                seg = bytes(out[len(out) - off:len(out) - off + length])
+                start = len(out) - off
+                if length <= off:
+                    seg = bytes(out[start:start + length])
+                else:
+                    # 偏移小于长度：回引区与输出重叠，按“边写边读”语义
+                    # 周期性重复（连续同一字节、重复日志行就是这种 token）。
+                    piece = bytes(out[start:])
+                    seg = (piece * (length // off + 1))[:length]
                 pos = r[1]
             out += seg
             produced += seg
