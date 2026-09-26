@@ -98,7 +98,7 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        out.append(len(part) - 1)
         out += part
 
 
@@ -225,7 +225,7 @@ class Decompressor:
         while pos < n:
             tag = buf[pos]
             if tag < 0x80:
-                cnt = tag + 2
+                cnt = tag + 1
                 if pos + 1 + cnt > n:
                     break  # 字面量块没收全，等更多数据
                 seg = bytes(buf[pos + 1:pos + 1 + cnt])

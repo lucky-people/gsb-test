@@ -319,5 +319,45 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressionLzpackF08(unittest.TestCase):
+    """lzpack-f08 批次四类缺陷的回归用例。"""
+
+    def test_regression_literal_tag_is_length_minus_one(self):
+        # 缺陷 1：编码端字面量块标签应为 长度-1（128 字节整块对应标签 0x7F）
+        data = bytes(range(128))  # 字节互不相同，保证整块作为字面量存储
+        blob = lzpack.compress(data)
+        _, p = read_varint(blob, 6)
+        data_at = p + 5  # 跳过头部校验字节与 CRC 字段
+        self.assertEqual(blob[data_at], 0x7F)
+        self.assertEqual(blob[data_at + 1:], data)
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_literal_block_exact_boundary(self):
+        # 缺陷 3：解码端字面量块长度 = 标签 + 1，不得多吃后续字节
+        data = b"ABCD"
+        head = codec.build_header(len(data), codec.crc32(data), 6, 32768)
+        blob = head + b"\x01AB\x01CD"  # 两个相邻的 2 字节字面量块
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 逐字节喂入同样成立
+        self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 1), data)
+
+    def test_regression_varint_max_bytes_nine(self):
+        # 缺陷 2：变长整数上限为 9 字节（63 位），长整数必须能往返
+        for v in (1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        self.assertEqual(len(encode_varint((1 << 63) - 1)), 9)
+
+    def test_regression_varint_shift_step_seven(self):
+        # 缺陷 4：多字节变长整数位移步长为 7，拼回数值必须正确
+        for v in (128, 300, 16384, 1 << 20, 1 << 40):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 长匹配的长度字段走多字节 varint：整段重复数据必须正确往返
+        data = b"y" * 5000
+        self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+
+
 if __name__ == "__main__":
     unittest.main()
