@@ -113,6 +113,26 @@ raw = d.feed(out[:5]) + d.feed(out[5:]) + d.finish()
 - 长度字段与实际不符、头部 4 字节不是魔数、任意截断：`FormatError`；
 - 不可压缩数据：原样存储为字面量块，膨胀约 0.8%。
 
+## 迁移对照记录（lzpack-f09）
+
+灰度对照旧实现时发现的 4 处语义差异，逐条记录判定依据，
+回归用例在 `test_lzpack.py` 的 `TestMigrationRegression`：
+
+1. **字面量块的块长 = 标签 + 1**（`lzpack/codec.py` 解码端曾按 +2 换算）。
+   编码侧写的是 `len(part) - 1`，格式表也规定标签 `0x00..0x7F` 对应
+   长度 1..128；解码端多算一个字节会多吞数据、使后续 token 全部错位。
+   两侧必须以格式表为准保持一致。
+2. **1MB（2^20）是合法窗口**（`lzpack/codec.py` 头部解析曾把
+   `wlog > 19` 判为非法）。元数据高 4 位 = `log2(window) - 10`，
+   window 上限 1MB 对应 wlog = 20，故拒绝条件应为 `wlog > 20`。
+3. **哈希链前驱表下标按 window 取模**（`lzpack/lz77.py` 曾用绝对位置
+   直接索引 `prev`）。`prev` 是 window 大小的环形数组，插入与链上
+   回溯都必须用 `i & (window - 1)`，否则输入超过 window 即越界，
+   且会取到错位的历史位置。
+4. **window 必须是 2 的幂**（`lzpack/codec.py` 参数校验曾缺失这条）。
+   环形数组用位与取模，非 2 的幂会让取模结果错乱，因此必须在
+   `validate_config` 拒绝，不能静默接受。
+
 ## 本机实测
 
 环境：Python 3.14.4，Linux x86-64。耗时与内存分开测量

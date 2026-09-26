@@ -319,5 +319,49 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestMigrationRegression(unittest.TestCase):
+    """lzpack-f09 迁移对照发现的 4 处差异，逐条钉死语义（判定 见 README）。"""
+
+    def test_regress_literal_block_length(self):
+        # 字面量块：标签 = 块长 - 1（1..128）。
+        # 旧差异：解码端按“标签 + 2”取块长，每个字面量块多吞一个字节，
+        # 后续 token 全部错位。这里手工构造一条只含字面量块的流逐字节验证。
+        data = bytes(range(1, 129))  # 128 个不重复字节，正好一个最大字面量块
+        head = codec.build_header(len(data), codec.crc32(data), 6, 32768)
+        blob = head + bytes([127]) + data
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 编码侧同样钉死：不可压缩数据的第一个标签必须等于 块长 - 1
+        self.assertEqual(lzpack.compress(data)[len(head):], bytes([127]) + data)
+
+    def test_regress_window_1mb_accepted(self):
+        # 元数据高 4 位 = log2(window) - 10，合法 window 上限为 1MB（2^20）。
+        # 旧差异：解压端把 wlog > 19 判为非法，1MB 窗口的流被拒。
+        data = LOG_LINE * 100
+        blob = lzpack.compress(data, window=1 << 20)
+        self.assertEqual(blob[5] >> 4, 10)  # log2(1MB) - 10 = 10
+        self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regress_prev_table_wraps(self):
+        # prev 是 window 大小的环形数组，下标必须按 window 取模。
+        # 旧差异：用绝对位置当下标，输入超过 window 即越界（IndexError），
+        # 且哈希链上取到错位的历史位置。用超过 window 的重复数据验证。
+        rng = random.Random(20260926)
+        data = rng.randbytes(500) * 20  # 10000 字节，远超 window
+        for window in (1024, 4096):
+            blob = lzpack.compress(data, window=window)
+            self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regress_window_must_be_power_of_two(self):
+        # prev 环形数组用位与取模，window 非 2 的幂会导致下标错位，
+        # 因此必须在参数校验时拒绝，不能静默接受。
+        # 旧差异：这条校验缺失，非 2 的幂被放过。
+        for bad in (1536, 3072, 5120, 40960, 786432):
+            self.assertFalse(bad & (bad - 1) == 0)  # 确认都不是 2 的幂
+            with self.assertRaises(ConfigError):
+                lzpack.compress(b"x", window=bad)
+            with self.assertRaises(ConfigError):
+                lzpack.Compressor(window=bad)
+
+
 if __name__ == "__main__":
     unittest.main()
