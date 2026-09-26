@@ -45,10 +45,10 @@ def _stream_edit(edit: Edit, a: list[Line], b: list[Line]) -> list[_Op]:
         return [("+", b[idx], None, idx)
                 for idx in range(edit.b_start, edit.b_end)]
 
-    ops: list[_Op] = [("+", b[idx], None, idx)
-                      for idx in range(edit.b_start, edit.b_end)]
-    ops.extend(("-", a[idx], idx, None)
-               for idx in range(edit.a_start, edit.a_end))
+    ops: list[_Op] = [("-", a[idx], idx, None)
+                      for idx in range(edit.a_start, edit.a_end)]
+    ops.extend(("+", b[idx], None, idx)
+               for idx in range(edit.b_start, edit.b_end))
     return ops
 
 
@@ -76,9 +76,10 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
             continue
         gap_edit = edits[prev_change_idx + 1]
         # 中间没有 equal（两个改动块相邻）必然合并；
-        # 间隔相等行不足「两端各 context 行 + 至少 1 个公共行」也合并。
+        # GNU 规则：间隔公共行不超过 2*context 时合并，
+        # 达到 2*context+1 行才拆成两个 hunk。
         if gap_edit.tag != "equal" or \
-                (gap_edit.a_end - gap_edit.a_start) < 2 * context:
+                (gap_edit.a_end - gap_edit.a_start) <= 2 * context:
             groups[-1].append(edit_idx)
         else:
             groups.append([edit_idx])

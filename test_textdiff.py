@@ -230,6 +230,38 @@ class UnifiedOrderingTests(unittest.TestCase):
             textdiff.apply("a\r\nb1\r\nb2\r\n", patch), "a\r\nB\r\n")
 
 
+class HunkMergeBoundaryTests(unittest.TestCase):
+    """hunk 合并边界（GNU 规则）的回归测试。
+
+    两个改动之间的公共上下文行数 <= 2*context 时合并为一个 hunk，
+    达到 2*context+1 行时才拆成两个 hunk；边界两侧都要有断言。
+    """
+
+    @staticmethod
+    def _two_changes(gap):
+        a_lines = ["head"] + [f"gap{i}" for i in range(gap)] + ["tail"]
+        b_lines = ["HEAD"] + a_lines[1:-1] + ["TAIL"]
+        a = "".join(x + "\n" for x in a_lines)
+        b = "".join(x + "\n" for x in b_lines)
+        return a, b
+
+    def test_exactly_two_context_common_lines_merge_into_one_hunk(self):
+        for context in (0, 1, 3, 5):
+            a, b = self._two_changes(2 * context)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 1,
+                             msg=(context, patch))
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+    def test_two_context_plus_one_common_lines_split_into_two_hunks(self):
+        for context in (0, 1, 3, 5):
+            a, b = self._two_changes(2 * context + 1)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 2,
+                             msg=(context, patch))
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+
 class ApplyTests(unittest.TestCase):
     def test_roundtrip_varied_contexts(self):
         cases = [
@@ -356,6 +388,40 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(result.conflicts[0].ours_lines, ["B1\n"])
         self.assertEqual(result.conflicts[1].theirs_lines, ["D2\n"])
         self.assertEqual(result.merged.count("<<<<<<<"), 2)
+
+    def test_conflict_base_range_is_one_based_half_open(self):
+        # 回归：替换/删除冲突的区间为 [lo+1, hi+1)（1 基半开）。
+        # ours 改第 3 行、theirs 改第 3-4 行，冲突覆盖祖先第 3、4 行。
+        result = textdiff.merge(self.BASE,
+                                "1\n2\nA\n4\n5\n",
+                                "1\n2\nB\nC\n5\n")
+        self.assertTrue(result.has_conflicts)
+        conflict = result.conflicts[0]
+        self.assertEqual((conflict.base_start, conflict.base_end), (3, 5))
+
+    def test_conflict_range_slices_base_exactly(self):
+        # 不变量：用 base 原文按 [base_start, base_end)（1 基半开）切片，
+        # 正好是冲突覆盖的祖先行；纯插入冲突切片为空。
+        cases = [
+            # (base, ours, theirs, 期望被冲突覆盖的祖先行)
+            ("1\n2\n3\n4\n5\n", "1\n2\nA\n4\n5\n", "1\n2\nB\n4\n5\n",
+             ["3\n"]),
+            ("1\n2\n3\n4\n5\n", "1\n2\nA\n4\n5\n", "1\n2\nB\nC\n5\n",
+             ["3\n", "4\n"]),
+            ("a\nb\nc\n", "a\nc\n", "a\nB\nc\n",
+             ["b\n"]),
+            ("a\nb\n", "a\nI\nb\n", "a\nJ\nb\n",
+             []),
+        ]
+        for base, ours, theirs, covered in cases:
+            result = textdiff.merge(base, ours, theirs)
+            self.assertTrue(result.has_conflicts, msg=(base, ours, theirs))
+            self.assertEqual(len(result.conflicts), 1)
+            conflict = result.conflicts[0]
+            base_lines = base.splitlines(keepends=True)
+            sliced = base_lines[conflict.base_start - 1:conflict.base_end - 1]
+            self.assertEqual(sliced, covered,
+                             msg=(base, ours, theirs))
 
 
 class RandomRoundTripTests(unittest.TestCase):
