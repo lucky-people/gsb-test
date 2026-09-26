@@ -319,5 +319,49 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """lzpack-f03 三个问题点的回归测试。"""
+
+    def test_regression_varint_max_bytes_is_nine(self):
+        # 字节上限曾被改小成 5：需要 6~9 字节的大整数必须能往返
+        from lzpack.varint import MAX_VARINT_BYTES
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 35, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertGreater(len(enc), 5)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+
+    def test_regression_varint_shift_step_is_seven(self):
+        # 位移步长曾被写成 8：每个 7 位组都带位的值必须逐位拼回
+        self.assertEqual(encode_varint(300), b"\xac\x02")
+        self.assertEqual(read_varint(b"\xac\x02", 0), (300, 2))
+        for v in (0x123456789, 0x7F7F7F7F7F, 0x0102030405060708):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+
+    def test_regression_overlap_match_offset_less_than_length(self):
+        # 偏移 < 长度 的匹配：语义是逐字节复制（周期性重复最近 off 字节）
+        # 手工构造：字面量 'a' + 匹配(偏移 1, 长度 10) => b"a" * 11
+        data = b"a" * 11
+        header = codec.build_header(len(data), codec.crc32(data), 6, 32768)
+        body = b"\x00a" + bytes([0x80 + (10 - 3)]) + b"\x00"
+        self.assertEqual(lzpack.decompress(header + body), data)
+        # 字面量 'ab' + 匹配(偏移 2, 长度 7) => b"ab" * 4 + b"a"
+        data2 = b"ab" * 4 + b"a"
+        header2 = codec.build_header(len(data2), codec.crc32(data2), 6, 32768)
+        body2 = b"\x01ab" + bytes([0x80 + (7 - 3)]) + b"\x01"
+        self.assertEqual(lzpack.decompress(header2 + body2), data2)
+
+    def test_regression_overlap_match_chunked_feed(self):
+        # 重叠匹配在流式分块喂入下结果必须一致（连续同一字节、重复日志行）
+        for data in (b"\x00" * 5000, LOG_LINE * 200, b"ab" * 3000):
+            blob = lzpack.compress(data)
+            self.assertEqual(lzpack.decompress(blob), data)
+            for size in (1, 7):
+                got = shuffled_feed(lzpack.Decompressor(), blob, size)
+                self.assertEqual(got, data)
+
+
 if __name__ == "__main__":
     unittest.main()
