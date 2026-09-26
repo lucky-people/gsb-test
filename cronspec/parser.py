@@ -74,7 +74,9 @@ def _resolve_value(token, field_name, name_map, position):
             )
         number = int(token)
     elif name_map is not None and token.isalpha():
-        upper_token = token
+        # 月份与星期名字大小写不敏感（JAN/jan/Jan 等价），统一转大写查表；
+        # 报错仍保留用户输入的原样 token，以满足定位不变量。
+        upper_token = token.upper()
         if upper_token not in name_map:
             raise ScheduleSyntaxError(
                 field_name,

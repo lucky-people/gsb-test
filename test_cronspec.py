@@ -440,5 +440,130 @@ class PerformanceTests(unittest.TestCase):
             self.assertLess(elapsed, 1.0, "%s 耗时 %.3fs" % (expr, elapsed))
 
 
+class LeapYearRegressionTests(unittest.TestCase):
+    """回归：闰年必须按公历规则判定，不能只看 year % 4。"""
+
+    def test_gregorian_leap_rule(self):
+        from cronspec.engine import is_leap
+
+        # 能被 4 整除且不能被 100 整除，或能被 400 整除。
+        self.assertFalse(is_leap(1900))  # 整百年且不能被 400 整除
+        self.assertTrue(is_leap(2000))   # 能被 400 整除
+        self.assertFalse(is_leap(2100))
+        self.assertTrue(is_leap(2024))
+
+    def test_feb29_skips_century_years(self):
+        schedule = parse("0 0 29 2 *")
+        # 1900 年不是闰年：从 1896 年的 2 月 29 日之后应直接跳到 1904 年。
+        self.assertEqual(
+            schedule.next_after(dt(1896, 3, 1)), dt(1904, 2, 29)
+        )
+        # 2000 年是闰年，2000-02-29 本身可达。
+        self.assertTrue(schedule.matches(dt(2000, 2, 29)))
+        self.assertEqual(
+            schedule.next_after(dt(1996, 3, 1)), dt(2000, 2, 29)
+        )
+
+    def test_days_in_february_century_years(self):
+        from cronspec.engine import days_in_month
+
+        self.assertEqual(days_in_month(1900, 2), 28)
+        self.assertEqual(days_in_month(2000, 2), 29)
+        self.assertEqual(days_in_month(2100, 2), 28)
+        self.assertEqual(days_in_month(2024, 2), 29)
+
+
+class CaseInsensitiveNamesRegressionTests(unittest.TestCase):
+    """回归：月份/星期名字必须大小写不敏感，非法名字仍精确定位报错。"""
+
+    def test_month_name_any_case(self):
+        for token in ("JAN", "jan", "Jan", "jAn"):
+            schedule = parse("0 0 * %s *" % token)
+            self.assertEqual(schedule.month.values, (1,), token)
+        mixed = parse("0 0 * jAn,DeC,Mar *")
+        self.assertEqual(mixed.month.values, (1, 3, 12))
+        # 名字参与范围与步进时同样不区分大小写。
+        ranged = parse("0 0 * jan-mar/2 *")
+        self.assertEqual(ranged.month.values, (1, 3))
+
+    def test_weekday_name_any_case(self):
+        for token in ("MON", "mon", "Mon"):
+            schedule = parse("0 0 * * %s" % token)
+            self.assertEqual(schedule.day_of_week.values, (1,), token)
+        ranged = parse("0 0 * * mon-fri")
+        self.assertEqual(ranged.day_of_week.values, (1, 2, 3, 4, 5))
+
+    def test_unknown_name_still_syntax_error_with_invariant(self):
+        for expr, field, value, position in (
+            ("0 0 * jaa *", "month", "jaa", 6),
+            ("0 0 * * frii", "day_of_week", "frii", 8),
+            ("0 0 * jan-x *", "month", "x", 10),
+        ):
+            with self.subTest(expr=expr):
+                with self.assertRaises(ScheduleSyntaxError) as captured:
+                    parse(expr)
+                error = captured.exception
+                self.assertEqual(error.field, field)
+                self.assertEqual(error.value, value)
+                self.assertEqual(error.position, position)
+                # 定位不变量在小写非法名字上继续成立。
+                end = error.position + len(error.value)
+                self.assertEqual(expr[error.position:end], error.value)
+
+
+class DomDowUnionRegressionTests(unittest.TestCase):
+    """回归：DOM 与 DOW 都被限定时必须取并集（满足任一即触发）。"""
+
+    def test_union_matches(self):
+        schedule = parse("0 0 13 * FRI")
+        # 2024-09-13 既是周五又是 13 号；09-20 只是周五；
+        # 2025-06-13 是 13 号；2024-09-14 两者都不是。
+        self.assertTrue(schedule.matches(dt(2024, 9, 13)))
+        self.assertTrue(schedule.matches(dt(2024, 9, 20)))
+        self.assertTrue(schedule.matches(dt(2025, 6, 13)))
+        self.assertFalse(schedule.matches(dt(2024, 9, 14)))
+
+    def test_union_next_n_across_months(self):
+        schedule = parse("0 0 13 * FRI")
+        results = schedule.next_n(dt(2024, 9, 1), 8)
+        # 跨 9、10 两个月：每个周五以及每个 13 号，按时间升序去重。
+        expected = [
+            dt(2024, 9, 6),
+            dt(2024, 9, 13),
+            dt(2024, 9, 20),
+            dt(2024, 9, 27),
+            dt(2024, 10, 4),
+            dt(2024, 10, 11),
+            dt(2024, 10, 13),
+            dt(2024, 10, 18),
+        ]
+        self.assertEqual(results, expected)
+        # 升序、严格晚于起点、不重复。
+        self.assertEqual(results, sorted(set(results)))
+        self.assertTrue(all(day > dt(2024, 9, 1) for day in results))
+
+    def test_single_restriction_uses_only_that_field(self):
+        dom_only = parse("0 0 13 * *")
+        dow_only = parse("0 0 * * FRI")
+        self.assertEqual(
+            dom_only.next_n(dt(2024, 9, 1), 3),
+            [dt(2024, 9, 13), dt(2024, 10, 13), dt(2024, 11, 13)],
+        )
+        self.assertEqual(
+            dow_only.next_n(dt(2024, 9, 1), 3),
+            [dt(2024, 9, 6), dt(2024, 9, 13), dt(2024, 9, 20)],
+        )
+
+    def test_both_star_is_every_day(self):
+        schedule = parse("0 0 * * *")
+        self.assertEqual(
+            schedule.next_after(dt(2024, 2, 28)), dt(2024, 2, 29)
+        )
+        # 2100 年不是闰年，星号表达式在 2 月只有 28 天，次日为 3 月 1 日。
+        self.assertEqual(
+            schedule.next_after(dt(2100, 2, 28)), dt(2100, 3, 1)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
