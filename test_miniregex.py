@@ -356,5 +356,46 @@ class TestMisc(unittest.TestCase):
         self.assertIn("aa", repr(m))
 
 
+class TestRegressionAccounting(unittest.TestCase):
+    """对账回归：三类与参考实现不一致的历史输入，按 README 判定口径执行。"""
+
+    def test_regression_backref_unmatched_group_not_empty_string(self):
+        # 反向引用指向未参与匹配的组时必须判失败，不能拿空串比较
+        r = compile_pattern(r"(\w+)?(x)\1")
+        self.assertIsNone(r.match("x"))
+        m = r.match("axa")
+        self.assertEqual(m.group(0), "axa")
+        self.assertEqual(m.group(1), "a")
+
+    def test_regression_backref_unmatched_group_case_insensitive(self):
+        # 大小写不敏感同样：未捕获即失败；已捕获则按 casefold 比，保留原文
+        r = compile_pattern(r"([AB])?x\1", case_sensitive=False)
+        self.assertIsNone(r.match("x"))
+        m = r.match("axA")
+        self.assertEqual(m.group(0), "axA")
+        self.assertEqual(m.group(1), "a")
+
+    def test_regression_oversized_repeat_rejected_at_brace(self):
+        # 超大 {n,m} 计数必须在解析期拒绝，报错位置指向 '{'
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern(r"\d{0,99999}")
+        self.assertEqual(ctx.exception.position, 2)
+        with self.assertRaises(PatternError):
+            compile_pattern("a{10001,}")
+        # 边界：计数正好 10000 仍合法
+        self.assertEqual(
+            compile_pattern("a{10000}").match("a" * 10000).group(0),
+            "a" * 10000,
+        )
+
+    def test_regression_dot_not_cross_newline_by_default(self):
+        # 默认 dot_all=False：'.' 不消费 '\n'，匹配停在换行前
+        m = compile_pattern("ERROR: .*").match("ERROR: timeout\nNEXT")
+        self.assertEqual(m.group(0), "ERROR: timeout")
+        self.assertIsNone(compile_pattern("a.b").search("a\nb"))
+        m2 = compile_pattern("a.b", dot_all=True).search("a\nb")
+        self.assertEqual(m2.group(0), "a\nb")
+
+
 if __name__ == "__main__":
     unittest.main()

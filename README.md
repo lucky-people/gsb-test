@@ -11,7 +11,7 @@
 | `miniregex/parser.py` | 递归下降解析器：模式串 → AST，中文报错带精确位置 |
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
-| `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex.py` | unittest，65 个用例覆盖全部语义、报错与对账回归 |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -63,6 +63,14 @@ group       = "(" ( "?:" )? pattern ")"
 | 大小写 | `case_sensitive=False` 按 `str.casefold()` 比较，捕获文本保留原文 |
 | 报错 | 量词前无原子、`{` 后非法计数、`{3,2}` 次序颠倒、括号/字符类未闭合、模式以 `\` 结尾，均抛带精确位置的 `PatternError` |
 
+## 对账判定口径
+
+与参考实现逐条比对时，以下三类输入的判定口径不得偏移：
+
+1. **反向引用指向未参与匹配的组**：该指令直接判失败、转入回溯，**不是**拿空串与目标文本比较。例如 `(\w+)?(x)\1` 匹配 `"x"` 时组 1 未捕获，整体失败；匹配 `"axa"` 时组 1 最后一次捕获为 `"a"`，引用成功。大小写不敏感时同样先判"是否捕获"，再按 `casefold()` 比较，捕获文本保留原文。
+2. **超大 `{n,m}` 计数**：计数（`n` 与 `m`）超过 **10000** 即在解析期抛 `PatternError`，位置精确到 `{`，不得等到展开阶段撑出巨量指令；计数正好 10000 合法。此外编译器还有 20 万条指令的兜底上限。
+3. **`.` 是否跨行**：默认 `dot_all=False`，`.` **不匹配 `\n`**（如 `"ERROR: .*"` 在 `"ERROR: timeout\nNEXT"` 上只匹配到 `"ERROR: timeout"`）；仅当显式传入 `dot_all=True` 时才匹配任意字符。
+
 ## 匹配算法与复杂度
 
 **策略：回溯 + 步数上限**（为支持反向引用，未采用纯 Thompson NFA）。
@@ -113,6 +121,6 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
+python3 -m unittest test_miniregex   # 65 个测试
 python3 bench.py                     # 性能基准
 ```
