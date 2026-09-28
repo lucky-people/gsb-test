@@ -416,5 +416,96 @@ class TestPerformance(unittest.TestCase):
         self.assertLess(elapsed, 10.0, f"批量判定过慢：{elapsed:.3f}s")
 
 
+class TestRegressionF04(unittest.TestCase):
+    """pathglob-f04 事故回归。
+
+    固化三处根因：模式末尾孤立反斜杠必须报错、目录规则自身命中
+    必须带 is_dir、中间含斜杠的模式必须锚定到根（且 Matcher 分桶
+    与 Pattern.matches 结论一致）。
+    """
+
+    def assert_three_entries_agree(self, pattern, path, is_dir=False):
+        """同一条规则、同一路径，matches/match/ignores 结论一致。"""
+        expected = compile_pattern(pattern).matches(path, is_dir=is_dir)
+        matcher = Matcher([pattern])
+        self.assertEqual(
+            matcher.match(path, is_dir=is_dir) is not None,
+            expected,
+            f"match 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+        self.assertEqual(
+            matcher.ignores(path, is_dir=is_dir),
+            expected,
+            f"ignores 与 matches 不一致：{pattern!r} vs {path!r}",
+        )
+
+    # 根因 1：模式末尾的孤立反斜杠必须抛 PatternError
+    def test_trailing_backslash_position_and_reason(self):
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("abc\\")
+        self.assertEqual(ctx.exception.pattern, "abc\\")
+        self.assertEqual(ctx.exception.position, 3)
+        self.assertIn("反斜杠", ctx.exception.reason)
+
+    def test_trailing_backslash_after_slash_raises(self):
+        # 最后一个段只有一个反斜杠，同样是“末尾孤立反斜杠”
+        with self.assertRaises(PatternError) as ctx:
+            compile_pattern("a/\\")
+        self.assertEqual(ctx.exception.position, 2)
+
+    def test_trailing_backslash_in_negated_rule_raises(self):
+        with self.assertRaises(PatternError):
+            compile_pattern("!x\\")
+
+    def test_escaped_backslash_followed_by_char_still_compiles(self):
+        # `\\` 后仍有被转义字符时是合法写法，不能误报
+        compile_pattern("a\\\\b")
+
+    # 根因 2：目录规则命中目录自身时必须 is_dir=True
+    def test_wildcard_directory_exact_match_requires_dir_flag(self):
+        p = compile_pattern("buil?/")
+        self.assertFalse(p.matches("build"))
+        self.assertTrue(p.matches("build", is_dir=True))
+        # 目录下内容任意 is_dir 都命中
+        self.assertTrue(p.matches("build/x.o"))
+        self.assertTrue(p.matches("build/x.o", is_dir=True))
+
+    def test_directory_rule_three_entries_consistent_on_self(self):
+        matcher = Matcher(["build/"])
+        self.assertIsNone(matcher.match("build"))
+        self.assertFalse(matcher.ignores("build"))
+        self.assertTrue(matcher.ignores("build", is_dir=True))
+        self.assertTrue(matcher.ignores("build/x"))
+        self.assert_three_entries_agree("build/", "build")
+        self.assert_three_entries_agree("build/", "build", is_dir=True)
+        self.assert_three_entries_agree("build/", "x/build")
+        self.assert_three_entries_agree("build/", "x/build", is_dir=True)
+
+    # 根因 3：中间含斜杠的模式锚定到根
+    def test_middle_slash_pattern_is_anchored(self):
+        p = compile_pattern("doc/*.md")
+        self.assertTrue(p.anchored)
+        self.assertTrue(p.matches("doc/a.md"))
+        self.assertFalse(p.matches("x/doc/a.md"))
+
+    def test_middle_slash_literal_anchored_in_matcher(self):
+        # 纯字面量多段模式必须进锚定桶，而不是非锚定 basename 桶
+        matcher = Matcher(["a/b"])
+        self.assertTrue(matcher.ignores("a/b"))
+        self.assertFalse(matcher.ignores("x/a/b"))
+        self.assertIsNone(matcher.match("x/a/b"))
+        self.assert_three_entries_agree("a/b", "x/a/b")
+
+    def test_anchored_escaped_directory_rule_three_entries(self):
+        # 锚定 + 转义 + 目录规则三者叠加，Matcher 不得漏配
+        matcher = Matcher([r"dir/a\?b/"])
+        self.assertTrue(matcher.ignores("dir/a?b/f"))
+        self.assertFalse(matcher.ignores("x/dir/a?b/f"))
+        self.assertFalse(matcher.ignores("dir/a?b"))
+        self.assertTrue(matcher.ignores("dir/a?b", is_dir=True))
+        self.assert_three_entries_agree(r"dir/a\?b/", "dir/a?b/f")
+        self.assert_three_entries_agree(r"dir/a\?b/", "x/dir/a?b/f")
+
+
 if __name__ == "__main__":
     unittest.main()
