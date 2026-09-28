@@ -154,9 +154,10 @@ def merge(base: str, ours: str, theirs: str,
                 output.extend(theirs_block)
                 ensure_newline()
                 output.append(_marker(f">>>>>>> {theirs_label}"))
-                # 1 基半开区间：替换/删除 [lo,hi) -> [lo+1, hi+1)；
-                # 纯插入 lo == hi 时记录插入点（0=文件开头，N=第 N 行后）。
-                base_start = lo
+                # 1 基半开区间：替换/删除 [lo,hi) 映射为 [lo+1, hi+1)，
+                # 即被改动祖先行的 1 基行号范围；纯插入 lo == hi 时记录
+                # 插入点（0=文件开头，N=第 N 行之后），不再额外加 1。
+                base_start = lo + 1 if hi > lo else lo
                 conflicts.append(Conflict(
                     base_start=base_start,
                     base_end=hi if hi == lo else hi + 1,

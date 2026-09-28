@@ -389,5 +389,94 @@ class RandomRoundTripTests(unittest.TestCase):
                     textdiff.apply(a, textdiff.unified(a, b, context)), b)
 
 
+class G07SemanticRegressionTests(unittest.TestCase):
+    """textdiff-g07：四处对外语义对齐问题的定点回归。"""
+
+    def test_g07_range_length_one_omits_count(self):
+        # 现象 1：区间长度恰为 1 时必须省略计数，只写起始号。
+        patch = textdiff.unified("a\nb\n", "a\nX\n", context=0)
+        self.assertIn("@@ -2 +2 @@", patch)
+        self.assertNotIn("@@ -2,1 +2,1 @@", patch)
+        # 删掉单行时新侧为空、旧侧恰好 1 行：旧侧只写起始号。
+        patch = textdiff.unified("a\nb\nc\n", "a\nc\n", 0)
+        self.assertIn("@@ -2 +1,0 @@", patch)
+
+    def test_g07_empty_side_uses_anchor_line_number(self):
+        # 现象 2：某一侧 0 行时起始号按锚点计，不再无条件 +1。
+        self.assertIn("@@ -0,0 +1 @@",
+                      textdiff.unified("", "x\n", context=0))
+        self.assertIn("@@ -0,0 +1 @@",
+                      textdiff.unified("a\n", "n\na\n", context=0))
+        # 非开头的纯插入：旧侧锚点为插入点前已有的旧行数（第 1 行后即 1）。
+        self.assertIn("@@ -1,0 +2,2 @@",
+                      textdiff.unified("a\nc\n", "a\nx\ny\nc\n", 0))
+        # 纯删除：新侧锚点为最后一条被删行的 1 基行号。
+        self.assertIn("@@ -1 +0,0 @@",
+                      textdiff.unified("a\n", "", context=0))
+        self.assertIn("@@ -2,2 +1,0 @@",
+                      textdiff.unified("a\nx\ny\nc\n", "a\nc\n", 0))
+        # 文件开头插入此前因旧侧号错位在 apply 时被判越界。
+        self.assertEqual(
+            textdiff.apply("", textdiff.unified("", "x\n")), "x\n")
+
+    def test_g07_hunk_grouping_boundary_threshold(self):
+        # 现象 3：间隔恰好 2*context 行时必须合并，
+        # 多于 2*context（即至少 2*context+1）才拆成两个 hunk。
+
+        def build(gap):
+            head = ["X\n"] + [f"k{i}\n" for i in range(gap)] + ["Y\n"]
+            tail = ["A\n"] + [f"k{i}\n" for i in range(gap)] + ["B\n"]
+            return "".join(head), "".join(tail)
+
+        for context in (1, 3):
+            a, b = build(2 * context)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 1)
+            expected = "".join(difflib.unified_diff(
+                a.splitlines(keepends=True), b.splitlines(keepends=True),
+                fromfile="a", tofile="b", n=context))
+            self.assertEqual(patch, expected)
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+            a, b = build(2 * context + 1)
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(patch.count("@@ -"), 2)
+            expected = "".join(difflib.unified_diff(
+                a.splitlines(keepends=True), b.splitlines(keepends=True),
+                fromfile="a", tofile="b", n=context))
+            self.assertEqual(patch, expected)
+            self.assertEqual(textdiff.apply(a, patch), b)
+
+    def test_g07_conflict_replace_base_range_is_one_based(self):
+        # 现象 4：替换冲突的祖先起始行号是 1 基行号（lo+1）。
+        result = textdiff.merge("1\n2\n3\n4\n5\n",
+                                "1\n2\nA\n4\n5\n",
+                                "1\n2\nB\n4\n5\n")
+        self.assertEqual(len(result.conflicts), 1)
+        self.assertEqual(
+            (result.conflicts[0].base_start,
+             result.conflicts[0].base_end), (3, 4))
+
+    def test_g07_conflict_delete_base_range_is_one_based(self):
+        # 现象 4：删除 vs 修改冲突同样定位到被改祖先行的 1 基行号。
+        result = textdiff.merge("a\nb\nc\n", "a\nc\n", "a\nB\nc\n")
+        self.assertEqual(len(result.conflicts), 1)
+        self.assertEqual(
+            (result.conflicts[0].base_start,
+             result.conflicts[0].base_end), (2, 3))
+
+    def test_g07_conflict_insert_keeps_insertion_point(self):
+        # 纯插入点冲突不套用 +1：文件开头为 0，第 N 行之后为 N。
+        result = textdiff.merge("a\n", "I\na\n", "J\na\n")
+        self.assertEqual(len(result.conflicts), 1)
+        self.assertEqual(
+            (result.conflicts[0].base_start,
+             result.conflicts[0].base_end), (0, 0))
+        result = textdiff.merge("a\nb\n", "a\nI\nb\n", "a\nJ\nb\n")
+        self.assertEqual(
+            (result.conflicts[0].base_start,
+             result.conflicts[0].base_end), (1, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

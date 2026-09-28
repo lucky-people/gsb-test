@@ -17,8 +17,8 @@ _Op = tuple[str, Line, Optional[int], Optional[int]]
 
 
 def _range_field(start: int, length: int) -> str:
-    """unified 头里的区间字段：长度为 1 时省略计数。"""
-    return f"{start},{length}"
+    """unified 头里的区间字段：长度为 1 时省略计数（只写起始号）。"""
+    return str(start) if length == 1 else f"{start},{length}"
 
 
 def _render_body_line(prefix: str, line: Line) -> list[str]:
@@ -57,7 +57,8 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
     """按 GNU unified 规则把编辑块分组为若干 hunk。
 
     每个非 equal 编辑块（含其内部相等行）整体属于某个 hunk；
-    两个非 equal 块之间若放不下 ``2*context`` 行纯上下文则合并；
+    两个非 equal 块之间若放不下 ``2*context+1`` 行纯上下文（即间隔
+    相等行不超过 ``2*context`` 行，含恰好相等的情形）则合并；
     hunk 两端各带至多 context 行上下文；起始行号与计数由实际正文统计。
     """
     changed_indexes = [idx for idx, edit in enumerate(edits)
@@ -76,9 +77,11 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
             continue
         gap_edit = edits[prev_change_idx + 1]
         # 中间没有 equal（两个改动块相邻）必然合并；
-        # 间隔相等行不足「两端各 context 行 + 至少 1 个公共行」也合并。
+        # 间隔相等行不超过 2*context（放不下「两端各 context 行 +
+        # 至少 1 行多余公共行」）时也合并；多于 2*context 才拆成两个
+        # hunk，与 GNU diff / difflib 的分组阈值保持一致。
         if gap_edit.tag != "equal" or \
-                (gap_edit.a_end - gap_edit.a_start) < 2 * context:
+                (gap_edit.a_end - gap_edit.a_start) <= 2 * context:
             groups[-1].append(edit_idx)
         else:
             groups.append([edit_idx])
@@ -114,7 +117,11 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
         new_start0 = next(
             (new_idx for op, _, _, new_idx in ops if new_idx is not None),
             first_edit.b_start)
-        old_display = old_start0 + 1
+        # 起始号遵循 GNU 约定：该侧区间为空（计数 0）时用「锚点行号」——
+        # 旧侧纯插入锚定插入点前已有的旧行数（文件开头为 0，
+        # 第 N 行之后为 N）；新侧纯删除锚定最后一条被删行的 1 基行号；
+        # 非空区间一律用首行的 1 基行号。
+        old_display = old_start0 + 1 if old_count > 0 else old_start0
         new_display = new_start0 + 1 if new_count > 0 else new_start0
 
         header = (f"@@ -{_range_field(old_display, old_count)} "
