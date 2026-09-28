@@ -1,0 +1,12 @@
+.env
+.env.*
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+Thumbs.db
