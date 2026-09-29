@@ -11,7 +11,7 @@
 | `miniregex/parser.py` | 递归下降解析器：模式串 → AST，中文报错带精确位置 |
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
-| `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex.py` | unittest，64 个用例覆盖全部语义与报错 |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -110,9 +110,27 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 - 量词展开而非计数器指令：实现简单、回溯语义直观；代价是 `{n}` 的 n 有上限（10000）。
 - 解析器使用 Python 递归：嵌套过深的模式（约千层括号）会触发 `RecursionError`，视为超出设计边界。
 
+## 事故修复记录（miniregex-g04）
+
+本次修复了三处核心逻辑缺陷，涉及语义表中的三条语义：
+
+1. **量词前无原子（语义表"报错"条）**：`*`、`+`、`?` 出现在原子位置时曾按字面量吞掉，
+   现恢复为抛 `PatternError`，位置精确到该量词字符（如 `a**` 报在位置 2）。
+   修复点：`miniregex/parser.py` 的 `_atom`。
+2. **`\w` 字符集（语义表"预定义类"条）**：`\w` 曾退化为只认字母，
+   现恢复为 `isalnum() + '_'`（字母、数字、下划线），`\W` 为其补集。
+   修复点：`miniregex/engine.py` 的 `_escape_hit`。
+3. **反向引用未参与匹配的组（语义表"分组"条）**：曾无条件拿空串比较（恒真），
+   现恢复为该组未捕获时本路径匹配失败、走回溯；大小写不敏感下规则相同。
+   修复点：`miniregex/engine.py` 虚拟机的 `BACKREF` 分支。
+
+每处修复均在 `test_miniregex.py` 补了回归用例
+（`test_quantifier_after_quantifier_raises`、`test_word_class_boundaries`、
+`test_backref_unmatched_group_regression`）。
+
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
+python3 -m unittest test_miniregex   # 64 个测试
 python3 bench.py                     # 性能基准
 ```

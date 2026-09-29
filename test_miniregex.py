@@ -117,6 +117,13 @@ class TestCharClass(unittest.TestCase):
         self.assertEqual(compile_pattern(r"\s+").match(" \t\n").group(0), " \t\n")
         self.assertEqual(compile_pattern(r"\S+").match("ab").group(0), "ab")
 
+    def test_word_class_boundaries(self):
+        # 回归：\w 必须同时认字母、数字与下划线，其余字符不认
+        self.assertEqual(compile_pattern(r"\w+").match("9_x").group(0), "9_x")
+        self.assertIsNone(compile_pattern(r"\w").match("!"))
+        self.assertEqual(compile_pattern(r"[\w]+").match("x9_").group(0), "x9_")
+        self.assertEqual(compile_pattern(r"\W+").match(" -").group(0), " -")
+
 
 class TestDotAndAnchors(unittest.TestCase):
     """语义 2、3：通配符与锚点。"""
@@ -231,6 +238,15 @@ class TestAlternationAndGroups(unittest.TestCase):
         m = compile_pattern(r"(ab)\1", case_sensitive=False).match("aBAb")
         self.assertEqual(m.group(0), "aBAb")
 
+    def test_backref_unmatched_group_regression(self):
+        # 回归：组未参与匹配时反向引用必须失败，而不是按空串比较
+        self.assertIsNone(compile_pattern(r"(x)?\1").match(""))
+        # 向前引用在运行时该组尚未捕获，同样判失败
+        self.assertIsNone(compile_pattern(r"\1(a)").match("a"))
+        # 大小写不敏感下同一规则
+        self.assertIsNone(
+            compile_pattern(r"(x)?\1", case_sensitive=False).match(""))
+
 
 class TestCaseInsensitive(unittest.TestCase):
     """语义 7：casefold 比较，捕获保留原文。"""
@@ -269,6 +285,14 @@ class TestPatternErrors(unittest.TestCase):
         self.assert_error("?a", 0)
         self.assert_error("a**", 2)
         self.assert_error("a|*", 2)
+
+    def test_quantifier_after_quantifier_raises(self):
+        # 回归：量词不能紧跟另一个量词（懒惰标记 '?' 是量词的一部分，除外）
+        self.assert_error("a+*", 2)
+        self.assert_error("a?*", 2)
+        self.assert_error("a{2}*", 4)
+        # 懒惰写法仍然合法
+        self.assertEqual(compile_pattern("a+?").match("aaa").group(0), "a")
 
     def test_bad_brace(self):
         self.assert_error("a{,}", 1)

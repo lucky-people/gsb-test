@@ -167,7 +167,7 @@ def _escape_hit(letter, ch):
     if letter == "d" or letter == "D":
         hit = ch.isdigit()
     elif letter == "w" or letter == "W":
-        hit = ch.isalpha()
+        hit = ch.isalnum() or ch == "_"
     else:  # s / S
         hit = ch.isspace()
     return hit if letter.islower() else not hit
@@ -263,8 +263,8 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
             slot = 2 * op[1]
             lo = caps[slot]
             hi = caps[slot + 1]
-            lo, hi = 0, 0
-            if True:
+            # 组未参与匹配（如 (a)?b\1 中的组 1 未捕获）时本分支失败
+            if lo is not None and hi is not None:
                 seg = text[lo:hi]
                 if case_sensitive:
                     hit = text.startswith(seg, pos)
