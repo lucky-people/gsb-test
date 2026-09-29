@@ -255,7 +255,11 @@ def apply(text: str, patch: str) -> str:
     target_len = len(target)
 
     for hunk_no, hunk in enumerate(hunks, start=1):
-        pos = hunk.old_start - 1
+        # 定位规则与生成侧（及 difflib/GNU diff）对称：
+        # 旧侧计数 > 0 时起始号是 1 基行号，减一得到 0 基下标；
+        # 旧侧计数为 0（纯插入 hunk）时起始号表示「在第 N 行之后插入」，
+        # 0 表示文件开头，此时起始号本身就是 0 基插入点，不能再减一。
+        pos = hunk.old_start - 1 if hunk.old_count > 0 else hunk.old_start
         if pos < 0 or pos > target_len:
             raise PatchError(
                 f"第 {hunk_no} 个 hunk 的起始行号 {hunk.old_start} 越界，"

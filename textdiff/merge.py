@@ -157,9 +157,10 @@ def merge(base: str, ours: str, theirs: str,
                 # 1 基半开区间：替换/删除 [lo,hi) -> [lo+1, hi+1)；
                 # 纯插入 lo == hi 时记录插入点（0=文件开头，N=第 N 行后）。
                 base_start = lo if hi == lo else lo + 1
+                base_end = hi if hi == lo else hi + 1
                 conflicts.append(Conflict(
                     base_start=base_start,
-                    base_end=hi,
+                    base_end=base_end,
                     ours_lines=[line.render() for line in ours_block],
                     theirs_lines=[line.render() for line in theirs_block],
                     ours_label=ours_label,

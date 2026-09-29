@@ -389,5 +389,31 @@ class RandomRoundTripTests(unittest.TestCase):
                     textdiff.apply(a, textdiff.unified(a, b, context)), b)
 
 
+class MigrationRegressionTests(unittest.TestCase):
+    """textdiff-g02 切换对照暴露的两处语义差异的回归用例。"""
+
+    def test_zero_count_hunk_inserts_after_named_line(self):
+        # 回归：旧侧计数为 0 的 hunk 曾被统一按「起始号减一」定位，
+        # 插入点整体前移一行。约定（与 difflib/GNU diff 一致）：
+        # 计数为 0 时起始号表示「在第 N 行之后插入」，0 表示文件开头。
+        patch = "--- a\n+++ b\n@@ -2,0 +3 @@\n+X\n"
+        self.assertEqual(textdiff.apply("a\nb\nc\n", patch), "a\nb\nX\nc\n")
+        # 文件开头插入：起始号 0 就是插入点本身。
+        patch = "--- a\n+++ b\n@@ -0,0 +1 @@\n+X\n"
+        self.assertEqual(textdiff.apply("a\n", patch), "X\na\n")
+        # 文件末尾追加：起始号等于原文行数，不得判为越界。
+        patch = "--- a\n+++ b\n@@ -2,0 +3 @@\n+X\n"
+        self.assertEqual(textdiff.apply("a\nb\n", patch), "a\nb\nX\n")
+
+    def test_conflict_base_end_is_one_past_last_ancestor_line(self):
+        # 回归：冲突块的祖先结束行号曾少加 1，半开区间不闭合。
+        # 1 基半开约定：改动祖先区间 [lo, hi) 记为 [lo+1, hi+1)，
+        # 即使冲突触及祖先最后一行，base_end 也要指到「最后一行之后」。
+        result = textdiff.merge("a\nb\n", "a\nX\n", "a\nY\n")
+        self.assertTrue(result.has_conflicts)
+        conflict = result.conflicts[0]
+        self.assertEqual((conflict.base_start, conflict.base_end), (2, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
