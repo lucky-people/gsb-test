@@ -1,6 +1,6 @@
 """字段取值集合、匹配语义以及 :class:`Schedule` 类型。"""
 
-from bisect import bisect_right
+from bisect import bisect_left
 from dataclasses import dataclass
 
 
@@ -66,7 +66,9 @@ class CronField:
 
     def next_value_at_or_above(self, value):
         """返回集合中 >= value 的最小值，不存在则返回 None。"""
-        idx = bisect_right(self.values, value)
+        # 注意必须是 bisect_left：语义是“大于等于”，正好命中的取值
+        # 也要返回；误用 bisect_right 会变成严格大于，把命中值跳过。
+        idx = bisect_left(self.values, value)
         if idx < len(self.values):
             return self.values[idx]
         return None

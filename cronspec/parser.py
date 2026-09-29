@@ -21,7 +21,8 @@ SHORTCUTS = {
     "@yearly": "0 0 1 1 *",
     "@annually": "0 0 1 1 *",
     "@monthly": "0 0 1 * *",
-    "@weekly": "0 0 * * 1",
+    # 每周日 00:00（POSIX 约定 0 表示周日；曾误写为 1，导致整体偏移一天）。
+    "@weekly": "0 0 * * 0",
     "@daily": "0 0 * * *",
     "@midnight": "0 0 * * *",
     "@hourly": "0 * * * *",
@@ -132,6 +133,16 @@ def _parse_fragment(fragment, field_name, name_map, position):
                 % (field_name, step_token),
             )
         step = int(step_token)
+        if step == 0:
+            # "0" 能通过 isdigit 检查，必须单独拦截，否则下游
+            # range(..., 0) 会抛出非 ScheduleSyntaxError 的 ValueError。
+            raise ScheduleSyntaxError(
+                field_name,
+                step_token,
+                position + len(base) + 1,
+                "%s 字段的步进值 %r 必须是正整数（不允许 0 或负数）"
+                % (field_name, step_token),
+            )
     else:
         step = None
 

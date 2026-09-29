@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from cronspec import describe, parse
 from cronspec.errors import NoMatchingTimeError, ScheduleSyntaxError
+from cronspec.fields import CronField
 
 
 def dt(year, month, day, hour=0, minute=0, second=0, microsecond=0):
@@ -425,6 +426,54 @@ class PerformanceTests(unittest.TestCase):
             elapsed = time.perf_counter() - begin
             self.assertEqual(len(results), 1000)
             self.assertLess(elapsed, 1.0, "%s 耗时 %.3fs" % (expr, elapsed))
+
+
+class RegressionTests(unittest.TestCase):
+    """需求单 cronspec-g04 三条现象的逐根因回归测试。"""
+
+    def test_next_value_at_or_above_is_inclusive(self):
+        # 根因 1：fields.py 误用 bisect_right，把“>= value 的最小值”
+        # 实现成严格大于，正好命中的取值被跳过。
+        field = CronField((5, 10, 20), False)
+        self.assertEqual(field.next_value_at_or_above(5), 5)
+        self.assertEqual(field.next_value_at_or_above(6), 10)
+        self.assertEqual(field.next_value_at_or_above(20), 20)
+        self.assertIsNone(field.next_value_at_or_above(21))
+        # 行为层回归：正好落在字段取值上的入参不得跳过该取值。
+        schedule = parse("30 9 * * *")
+        self.assertEqual(
+            schedule.next_after(dt(2024, 3, 10, 9, 29)),
+            dt(2024, 3, 10, 9, 30),
+        )
+        yearly = parse("0 0 1 1 *")
+        self.assertEqual(
+            yearly.next_after(dt(2024, 6, 15)), dt(2025, 1, 1)
+        )
+
+    def test_weekly_shortcut_means_sunday(self):
+        # 根因 2：parser.py 中 @weekly 误写为 "0 0 * * 1"（周一），
+        # 文档约定为周日（0）。
+        schedule = parse("@weekly")
+        self.assertEqual(schedule.day_of_week.values, (0,))
+        # 2024-09-29 是周日，2024-09-30 是周一。
+        self.assertTrue(schedule.matches(dt(2024, 9, 29)))
+        self.assertFalse(schedule.matches(dt(2024, 9, 30)))
+        self.assertEqual(schedule.next_after(dt(2024, 9, 29)), dt(2024, 10, 6))
+
+    def test_step_zero_rejected_as_syntax_error(self):
+        # 根因 3：parser.py 只校验步进是否为数字，"0" 漏网，
+        # 导致 */0 被接受或在下游抛非 ScheduleSyntaxError。
+        for expr, value, position in (
+            ("*/0 * * * *", "0", 2),
+            ("1-5/0 * * * *", "0", 4),
+            ("* * * * */0", "0", 10),
+        ):
+            with self.assertRaises(ScheduleSyntaxError) as captured:
+                parse(expr)
+            error = captured.exception
+            self.assertEqual(error.value, value, expr)
+            self.assertEqual(error.position, position, expr)
+            self.assertIn("步进", str(error), expr)
 
 
 if __name__ == "__main__":
