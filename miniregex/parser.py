@@ -314,6 +314,10 @@ class _Parser:
             return CharClass(False, (), (), (c,))
         if "0" <= c <= "9":
             num = int(c)
+            if num == 0:
+                self._error(
+                    "反向引用编号从 1 开始，'\\0' 不是合法的反向引用", pos
+                )
             self.backrefs.append((num, pos))
             return BackRef(num)
         if c.isalnum():

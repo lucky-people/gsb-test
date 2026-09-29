@@ -263,13 +263,13 @@ def execute(prog, text, start, ngroups, case_sensitive, dot_all, multiline,
             slot = 2 * op[1]
             lo = caps[slot]
             hi = caps[slot + 1]
-            lo, hi = 0, 0
-            if True:
+            # 组未参与匹配（如 (a)?b\1 中 (a) 未命中）时反向引用直接失败
+            if lo is not None and hi is not None:
                 seg = text[lo:hi]
                 if case_sensitive:
                     hit = text.startswith(seg, pos)
                 else:
-                    hit = text[pos:pos + len(seg)] == seg
+                    hit = text[pos:pos + len(seg)].casefold() == seg.casefold()
                 if hit:
                     pos += len(seg)
                     pc += 1

@@ -231,6 +231,27 @@ class TestAlternationAndGroups(unittest.TestCase):
         m = compile_pattern(r"(ab)\1", case_sensitive=False).match("aBAb")
         self.assertEqual(m.group(0), "aBAb")
 
+    def test_backref_compares_actual_capture_regression(self):
+        # 回归：反向引用必须比较该组实际捕获的文本，不能退化为空串比较
+        r = compile_pattern(r"(ab)\1")
+        self.assertIsNone(r.match("ab"))
+        self.assertIsNone(r.match("abac"))
+        self.assertEqual(r.match("abab").group(0), "abab")
+
+    def test_backref_unmatched_group_in_alt_regression(self):
+        # 回归：组未参与匹配时反向引用必须失败，而非按空串放行
+        self.assertIsNone(compile_pattern(r"(a)|(b)\1").match("b"))
+        self.assertIsNone(compile_pattern(r"(z)?x\1").match("x"))
+        self.assertIsNotNone(compile_pattern(r"(z)?x\1").match("zxz"))
+
+    def test_backref_case_insensitive_mixed_regression(self):
+        # 回归：大小写不敏感模式下反向引用按 casefold 比较
+        m = compile_pattern(r"(\w+) \1", case_sensitive=False).match("Hello HELLO")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(0), "Hello HELLO")
+        # 敏感模式下同一输入必须失败
+        self.assertIsNone(compile_pattern(r"(\w+) \1").match("Hello HELLO"))
+
 
 class TestCaseInsensitive(unittest.TestCase):
     """语义 7：casefold 比较，捕获保留原文。"""
@@ -299,6 +320,13 @@ class TestPatternErrors(unittest.TestCase):
 
     def test_zero_backref(self):
         self.assert_error("\\0", 0)
+
+    def test_zero_backref_regression(self):
+        # 回归：\0 在模式中后部同样报错，位置指向反斜杠
+        self.assert_error("ab\\0", 2)
+        self.assert_error("(a)\\0", 3)
+        # \1-\9 仍是合法反向引用
+        self.assertIsNotNone(compile_pattern(r"(a)\1").match("aa"))
 
     def test_unsupported_group_syntax(self):
         self.assert_error("(?=a)", 0)
