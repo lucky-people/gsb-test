@@ -12,6 +12,7 @@
 | `miniregex/engine.py` | 编译器（AST → 指令序列）+ 回溯虚拟机 |
 | `miniregex/classes.py` | `Regex` / `Match` / `compile_pattern` |
 | `test_miniregex.py` | unittest，61 个用例覆盖全部语义与报错 |
+| `test_miniregex_regression.py` | 灰度对照回归用例（每处差异一条，判定理由见下文） |
 | `bench.py` | 性能基准（耗时与内存分开测量） |
 
 ## 对外接口
@@ -63,6 +64,24 @@ group       = "(" ( "?:" )? pattern ")"
 | 大小写 | `case_sensitive=False` 按 `str.casefold()` 比较，捕获文本保留原文 |
 | 报错 | 量词前无原子、`{` 后非法计数、`{3,2}` 次序颠倒、括号/字符类未闭合、模式以 `\` 结尾，均抛带精确位置的 `PatternError` |
 
+## 灰度对照确认的关键判定（miniregex-g02）
+
+切换灰度阶段与旧实现对照出 3 处语义差异，逐条对齐如下，回归用例见
+`test_miniregex_regression.py`：
+
+1. **量词前无原子必须报错**：`*a`、`a**`、`a|*` 中的孤立量词抛
+   `PatternError`，位置精确到该量词字符。判定理由：孤立量词几乎一定是
+   模式拼写错误，静默按字面量处理会让错误模式"碰巧能跑"而产出错误结果。
+   注意与 `{` 区分：未跟在原子后的 `{` 仍按字面量（与 `re` 一致），因为
+   `{2}` 这类文本在普通字符串中常见。
+2. **`multiline=True` 时 `^` 匹配每行行首**：即整段开头或 `\n` 之后的
+   位置，与 `$` 的行尾语义对称。判定理由：README 语义表承诺 multiline 下
+   `^`/`$` 以 `\n` 为界；若 `^` 只认整段开头，该开关对 `^` 就形同虚设。
+3. **反向引用未参与匹配的组时匹配失败**：如 `(a)?b\1` 不匹配 `"b"`，
+   而不是拿空串比较。判定理由：与标准库 `re` 及旧实现一致——未捕获的组
+   没有可引用的内容，按空串处理会静默改变匹配语义；组已捕获时 `\1`
+   引用该组**最后一次**捕获的实际文本（如 `(a|b)+c\1` 匹配 `"abcb"`）。
+
 ## 匹配算法与复杂度
 
 **策略：回溯 + 步数上限**（为支持反向引用，未采用纯 Thompson NFA）。
@@ -113,6 +132,7 @@ ReDoS 实测：`(a+)+b` 在 `"a"*30 + "c"` 上 **0.11 s 后抛 `MatchLimitError`
 ## 运行
 
 ```bash
-python3 -m unittest test_miniregex   # 61 个测试
-python3 bench.py                     # 性能基准
+python3 -m unittest test_miniregex              # 61 个验收用例（对照基准，勿改）
+python3 -m unittest test_miniregex_regression   # 灰度对照回归用例
+python3 bench.py                                # 性能基准
 ```

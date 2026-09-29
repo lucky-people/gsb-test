@@ -276,8 +276,7 @@ class _Parser:
         if c == "\\":
             return self._escape(pos)
         if c in "*+?":
-            self.pos += 1
-            return Literal(c)
+            self._error("量词 '%s' 前面没有可修饰的原子" % c, pos)
         # 其余字符（包括 '{'、'}'、']'）一律按字面量处理
         self.pos += 1
         return Literal(c)
