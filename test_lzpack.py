@@ -319,5 +319,43 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """历史缺陷的回归测试，每条对应一处根因。"""
+
+    def test_regression_overlap_match_decode(self):
+        # 根因：解码端把匹配回引当成普通切片，偏移 < 长度时越尾截断。
+        # 手工构造：字面量 'a' + 匹配(偏移1, 长度5)，应解压出 6 个 'a'。
+        data = b"a" * 6
+        blob = codec.build_header(6, codec.crc32(data), 6, 32768) + b"\x00a\x82\x00"
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 编码端也确实会产生这种重叠匹配（连续同一字节、重复日志行）
+        for data in (b"a" * 1000, LOG_LINE * 500, b"abc" * 3333):
+            self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+
+    def test_regression_varint_shift_step(self):
+        # 根因：read_varint 的位移步长写成 8，LEB128 每字节只有 7 位数据。
+        # 逐字节钉死编码形态，多字节值必须能拼回原值。
+        self.assertEqual(encode_varint(300), b"\xac\x02")
+        self.assertEqual(read_varint(b"\xac\x02", 0), (300, 2))
+        self.assertEqual(encode_varint(1 << 21), b"\x80\x80\x80\x01")
+        self.assertEqual(read_varint(b"\x80\x80\x80\x01", 0), (1 << 21, 4))
+
+    def test_regression_prev_table_ring_index(self):
+        # 根因：prev 环形表写入时没按窗口取模，输入超过 window 即越界。
+        # 数据明显大于 window 时必须正常往返，不抛 IndexError。
+        rng = random.Random(20260929)
+        data = (rng.randbytes(5000) + LOG_LINE * 200) * 3
+        for window in (1024, 4096):
+            blob = lzpack.compress(data, window=window)
+            self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_regression_1mb_window_accepted(self):
+        # 根因：头部解析把 wlog > 19 判非法，1 MB（2^20）窗口被误拒。
+        data = (LOG_LINE * 100) + bytes(range(256)) * 10
+        blob = lzpack.compress(data, window=1 << 20)
+        self.assertEqual(blob[5] >> 4, 10)  # 元数据高 4 位 = log2(window) - 10
+        self.assertEqual(lzpack.decompress(blob), data)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,7 +39,7 @@ def read_varint(buf, pos):
         result |= (byte & 0x7F) << shift
         if not byte & 0x80:
             return result, k + 1
-        shift += 8
+        shift += 7
     if len(buf) - pos >= MAX_VARINT_BYTES:
         raise FormatError(pos, "变长整数超过 %d 字节仍未终止" % MAX_VARINT_BYTES)
     return None

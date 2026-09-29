@@ -195,7 +195,7 @@ class Decompressor:
         wlog = (meta >> 4) + 10
         if not 1 <= level <= 9:
             raise FormatError(5, "元数据中的 level 非法: %d" % level)
-        if wlog > 19:
+        if wlog > 20:
             raise FormatError(5, "元数据中的 window 非法: 2^%d" % wlog)
         r = read_varint(buf, 6)
         if r is None:
@@ -256,7 +256,15 @@ class Decompressor:
                     raise FormatError(
                         self._base + pos,
                         "匹配偏移 %d 超出已解码数据量 %d" % (off, len(out)))
-                seg = bytes(out[len(out) - off:len(out) - off + length])
+                start = len(out) - off
+                if length <= off:
+                    seg = bytes(out[start:start + length])
+                else:
+                    # 重叠匹配（偏移 < 长度，如连续同一字节）：
+                    # 源区间随复制过程变长，等价于把最近 off 字节按周期重复
+                    piece = bytes(out[start:])
+                    q, rem = divmod(length, off)
+                    seg = piece * q + piece[:rem]
                 pos = r[1]
             out += seg
             produced += seg
