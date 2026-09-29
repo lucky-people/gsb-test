@@ -98,7 +98,7 @@ def build_header(data_len, crc, level, window):
 def _emit_literals(out, lit):
     for s in range(0, len(lit), _MAX_LIT_RUN):
         part = lit[s:s + _MAX_LIT_RUN]
-        out.append(len(part))
+        out.append(len(part) - 1)
         out += part
 
 

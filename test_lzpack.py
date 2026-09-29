@@ -319,5 +319,45 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """历史根因的回归测试（lzpack-g03）。"""
+
+    def test_regression_varint_allows_9_bytes(self):
+        # 根因：MAX_VARINT_BYTES 被误改成 5，6 字节以上的长整数无法往返
+        for v in (1 << 35, 1 << 40, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertGreater(len(enc), 5)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 超过 9 字节仍未终止：FormatError
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 10, 0)
+
+    def test_regression_varint_shift_is_7(self):
+        # 根因：位移步长被误写成 8（应为 7），多字节数值拼回来是错的
+        self.assertEqual(read_varint(b"\x80\x01", 0), (128, 2))
+        self.assertEqual(read_varint(b"\xac\x02", 0), (300, 2))
+        for v in (128, 300, 0x123456789):
+            enc = encode_varint(v)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+
+    def test_regression_literal_tag_is_length_minus_1(self):
+        # 根因：字面量块标签误写成长度本身（应为长度 - 1），
+        # 解码时整块多吃一个字节
+        data = bytes(range(127))          # 无 3 字节重复，必为单个字面量块
+        blob = lzpack.compress(data)
+        self.assertEqual(blob[12], 126)   # 标签 = 长度 - 1
+        self.assertEqual(blob[13:], data)
+        self.assertEqual(lzpack.decompress(blob), data)
+        # 超过 128 字节时拆成 128 + 1 两块，第二块标签为 0
+        data = bytes(range(128)) + b"\xff"
+        blob = lzpack.compress(data)
+        self.assertEqual(blob[13], 127)   # 长度字段占 2 字节，数据块从 13 开始
+        self.assertEqual(blob[14:14 + 128], data[:128])
+        self.assertEqual(blob[14 + 128], 0)
+        self.assertEqual(blob[15 + 128:], data[128:])
+        self.assertEqual(lzpack.decompress(blob), data)
+
+
 if __name__ == "__main__":
     unittest.main()
