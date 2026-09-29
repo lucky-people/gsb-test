@@ -24,6 +24,11 @@ print(report.created, report.updated, report.deleted, report.unchanged)
 bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 ```
 
+差异判定语义：路径只在新清单出现为 `added`，只在旧清单出现为 `removed`；
+同路径下文件的 size 或 sha256 变化、符号链接 target 变化、以及 kind
+发生变化（file / dir / symlink 互相切换）都算 `modified`；其余为
+`unchanged`。四个列表均按字典序排序。
+
 ## 清单格式（Manifest）
 
 清单序列化为 UTF-8 JSON 文本，顶层结构：
@@ -55,7 +60,7 @@ bad = dirsync.verify("/data/dst", manifest)   # 完全一致时返回 []
 | 规则形式 | 语义 |
 | --- | --- |
 | `*.log` | fnmatch 语义，`*` / `?` 不跨 `/`；不含 `/` 的规则同时匹配完整路径与 basename |
-| `**/temp.tmp` | `**` 可跨任意层目录 |
+| `**/temp.tmp` | `**` 可跨任意层目录；`**/` 匹配**零层**或多层目录，顶层的 `temp.tmp` 同样匹配 |
 | `build/` | 以 `/` 结尾：忽略整棵子树（目录本身及其下所有内容） |
 | `!keep.log` | `!` 前缀：重新包含（取消之前的忽略） |
 

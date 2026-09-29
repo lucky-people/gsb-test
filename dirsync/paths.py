@@ -46,8 +46,8 @@ def _translate(pattern: str) -> str:
         c = pattern[i]
         if c == "*":
             if pattern.startswith("**/", i):
-                # **/ 可匹配零层或多层目录
-                out.append("[^/]*/")
+                # **/ 可匹配零层或多层目录（顶层文件也能匹配）
+                out.append("(?:[^/]+/)*")
                 i += 3
             elif pattern.startswith("**", i):
                 out.append(".*")
@@ -131,7 +131,8 @@ def compile_rules(ignore: Iterable[str]) -> List[IgnoreRule]:
 
 def is_ignored(relpath: str, is_dir: bool, rules: List[IgnoreRule]) -> bool:
     """按顺序应用规则，最后匹配的规则决定是否忽略。"""
+    ignored = False
     for rule in rules:
         if rule.matches(relpath, is_dir):
-            return not rule.negated
-    return False
+            ignored = not rule.negated
+    return ignored

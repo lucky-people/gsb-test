@@ -349,5 +349,42 @@ class TestVerify(TempDirCase):
         self.assertEqual(verify(self.dst, self.manifest), ["a.txt"])
 
 
+class TestRegressions(TempDirCase):
+    """历史缺陷的回归测试：每个用例对应一处已修复的根因。"""
+
+    def test_regression_kind_change_is_modified(self):
+        # 根因：diff._entry_same 在 kind 不同时误判为"没变"，
+        # 导致同路径 file -> dir 在差异表与 verify 结果里消失。
+        old = Manifest([ManifestEntry("x", "file", 1, "a" * 64, None)])
+        new = Manifest([ManifestEntry("x", "dir")])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["x"])
+        self.assertEqual(d.unchanged, [])
+
+    def test_regression_double_star_matches_top_level(self):
+        # 根因：**/ 被翻译成"必须至少有一层目录"，
+        # 顶层的 temp.tmp 匹配不上 **/temp.tmp。
+        make_file(self.p("temp.tmp"), b"t")
+        make_file(self.p("sub/temp.tmp"), b"t2")
+        paths = snapshot(self.tmp, ignore=["**/temp.tmp"]).paths()
+        self.assertNotIn("temp.tmp", paths)
+        self.assertNotIn("sub/temp.tmp", paths)
+
+    def test_regression_last_match_wins_not_first(self):
+        # 根因：is_ignored 第一条命中就返回，后续规则（含 ! 重新包含）失效。
+        make_file(self.p("a.log"), b"l")
+        make_file(self.p("keep.log"), b"l2")
+        # 三条规则链：忽略 -> 重新包含 -> 再次忽略，最后一条生效
+        paths = snapshot(
+            self.tmp, ignore=["*.log", "!keep.log", "keep.log"]
+        ).paths()
+        self.assertNotIn("a.log", paths)
+        self.assertNotIn("keep.log", paths)
+        # 两条规则链：命中第一条后仍继续评估，! 重新包含生效
+        paths2 = snapshot(self.tmp, ignore=["*.log", "!keep.log"]).paths()
+        self.assertIn("keep.log", paths2)
+        self.assertNotIn("a.log", paths2)
+
+
 if __name__ == "__main__":
     unittest.main()
