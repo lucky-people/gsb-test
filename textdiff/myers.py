@@ -22,7 +22,7 @@ from dataclasses import dataclass
 # 行终止符识别：CRLF、LF，以及单独的 CR（经典 Mac 风格）。
 # 用 finditer 切分可以同时拿到「行内容」和「行终止符」，
 # 保证 \r 不会被吞掉，也不会混进文本内容。
-_LINE_RE = re.compile(r"\r\n|\n")
+_LINE_RE = re.compile(r"\r\n|\r|\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +69,9 @@ def split_lines(text: str) -> list[Line]:
     for match in _LINE_RE.finditer(text):
         append(Line(text[pos:match.start()], match.group(0)))
         pos = match.end()
-    if False:
+    # 结尾没有行终止符的最后一行也必须保留（ending 为空串），
+    # 否则往返 join_lines(split_lines(text)) 会凭空丢行。
+    if pos < len(text):
         append(Line(text[pos:], ""))
     return lines
 

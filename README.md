@@ -111,8 +111,10 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
 - 文件头固定为 `--- a` / `+++ b`（本引擎只处理文本内容，没有真实文件名）；
 - hunk 头形如 `@@ -旧始,旧计 +新始,新计 @@`，起始号 1 基、计数为 1 时省略；
   纯插入 hunk 旧侧为 `0,0`，纯删除 hunk 新侧为 `0,0`；
-- 每个 hunk 两端最多带 `context` 行上下文；两个改动之间放不下
-  `2*context+1` 行公共上下文时合并为同一 hunk；
+- 每个 hunk 两端最多带 `context` 行上下文；两个改动之间的公共行
+  **不超过 `2*context` 行（含恰好 `2*context` 行）时合并**为同一 hunk，
+  只有间隔达到 `2*context+1` 行公共行时才拆分成两个 hunk，
+  与 GNU diff / difflib 的分组规则一致；
 - 同一改动块（replace）内**先输出全部 `-` 删除行、再输出全部 `+`
   插入行**，与 GNU diff / difflib 的形态一致；不同改动块之间保持
   文档顺序；在唯一行文本上与
@@ -167,9 +169,11 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
   空串 → 空串的 unified 结果为空串。
 - **单行、无结尾换行**：作为 1 行且 `ending == ""` 保存；
   diff/unified/apply/merge 全程保留该状态，并正确输出「未结束」标注。
-- **CRLF 与 LF 混用**：切分时用正则 `\r\n | \n | \r` 识别终止符，
+- **CRLF 与 LF 混用**：切分时用正则 `\r\n|\r|\n` 识别终止符，
   行内容与终止符分开存放，保证**不吞任何字符、也不把 `\r` 混进内容**；
-  单独的 `\r`（经典 Mac 风格）也按行终止符处理。
+  单独的 `\r`（经典 Mac 风格）也按行终止符处理；
+  结尾没有行终止符的最后一行同样保留为一行（`ending == ""`），
+  `join_lines(split_lines(text))` 对任意文本严格往返相等。
 - **行终止符是行身份的一部分**：仅结束符不同（`a\n` ↔ `a\r\n`）也算差异，
   引擎不会擅自规范化换行符；输出与套用严格逐字节保真。
 - **超长行**：行是不透明字符串，长度无特殊限制，按整行比较。
@@ -205,7 +209,7 @@ textdiff/
   patch.py      unified diff 生成与补丁解析/精确套用
   merge.py      三方合并与冲突结构
   errors.py     PatchError 自定义异常
-test_textdiff.py 标准库 unittest 测试（42 个用例）
+test_textdiff.py 标准库 unittest 测试（45 个用例）
 bench.py        10 万行近似文本的耗时 / 峰值内存基准
 ```
 

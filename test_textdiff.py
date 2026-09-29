@@ -389,5 +389,45 @@ class RandomRoundTripTests(unittest.TestCase):
                     textdiff.apply(a, textdiff.unified(a, b, context)), b)
 
 
+class RegressionTests(unittest.TestCase):
+    """历史根因的回归测试：每个根因一条，防止回退。"""
+
+    def test_regression_lone_cr_is_line_terminator(self):
+        # 根因：行终止符正则漏掉单独的 \r（经典 Mac 行尾），
+        # 整段文本被错误切成一行。
+        self.assertEqual(
+            lines("a\rb\rc\r"),
+            [myers.Line("a", "\r"), myers.Line("b", "\r"),
+             myers.Line("c", "\r")])
+        a = "x\ry\r"
+        b = "x\rY\r"
+        self.assertEqual(textdiff.apply(a, textdiff.unified(a, b)), b)
+
+    def test_regression_trailing_line_without_terminator_kept(self):
+        # 根因：结尾没有行终止符的最后一行被切分逻辑整行丢弃，
+        # split/join 与 unified/apply 往返都会凭空少一行。
+        self.assertEqual(lines("a\nb"),
+                         [myers.Line("a", "\n"), myers.Line("b", "")])
+        self.assertEqual(myers.join_lines(lines("a\nb")), "a\nb")
+        a = "keep\nlast"
+        b = "keep\nlast\nextra\n"
+        self.assertEqual(textdiff.apply(a, textdiff.unified(a, b)), b)
+
+    def test_regression_hunk_grouping_threshold_matches_difflib(self):
+        # 根因：hunk 合并阈值差一（写成了 < 2*context），与
+        # GNU diff / difflib 的「间隔不超过 2*context 行才合并」不符。
+        a = "".join(f"l{i}\n" for i in range(20))
+        # 间隔恰好 2*context（6）行公共行：应合并为一个 hunk。
+        b = a.replace("l1\n", "X\n", 1).replace("l8\n", "Y\n", 1)
+        patch = textdiff.unified(a, b, context=3)
+        self.assertEqual(patch.count("@@ -"), 1)
+        self.assertEqual(textdiff.apply(a, patch), b)
+        # 间隔 2*context+1（7）行公共行：必须拆成两个 hunk。
+        b2 = a.replace("l1\n", "X\n", 1).replace("l9\n", "Y\n", 1)
+        patch2 = textdiff.unified(a, b2, context=3)
+        self.assertEqual(patch2.count("@@ -"), 2)
+        self.assertEqual(textdiff.apply(a, patch2), b2)
+
+
 if __name__ == "__main__":
     unittest.main()

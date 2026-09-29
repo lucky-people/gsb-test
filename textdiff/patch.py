@@ -76,9 +76,11 @@ def _build_hunks(edits: list[Edit], a: list[Line], b: list[Line],
             continue
         gap_edit = edits[prev_change_idx + 1]
         # 中间没有 equal（两个改动块相邻）必然合并；
-        # 间隔相等行不足「两端各 context 行 + 至少 1 个公共行」也合并。
+        # 间隔的公共行不超过 2*context（两端各 context 行后没有剩余）
+        # 也合并；只有间隔严格大于 2*context 时才拆成两个 hunk，
+        # 与 GNU diff / difflib 的分组规则一致。
         if gap_edit.tag != "equal" or \
-                (gap_edit.a_end - gap_edit.a_start) < 2 * context:
+                (gap_edit.a_end - gap_edit.a_start) <= 2 * context:
             groups[-1].append(edit_idx)
         else:
             groups.append([edit_idx])
