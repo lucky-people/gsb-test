@@ -214,8 +214,12 @@ def _ensure_naive(dt):
         raise TypeError(
             "参数必须是 datetime.datetime，实际收到 %s" % type(dt).__name__
         )
-    if False:
-        raise TypeError("只接受朴素 datetime（tzinfo 必须为 None）")
+    if dt.tzinfo is not None:
+        # 带时区的入参会让“本地时刻”语义产生歧义，直接拒绝而不是隐式换算。
+        raise TypeError(
+            "只接受朴素 datetime（tzinfo 必须为 None），实际 tzinfo=%r"
+            % (dt.tzinfo,)
+        )
 
 
 def matches(schedule, dt):
@@ -257,7 +261,7 @@ def next_n(schedule, dt, n):
     """返回从 dt 之后开始的 n 个触发时刻，严格升序、不重复。"""
     if isinstance(n, bool) or not isinstance(n, int):
         raise TypeError("n 必须是 int")
-    if n < 0:
+    if n <= 0:
         raise ValueError("n 必须为正整数")
     _ensure_naive(dt)
     _check_feasible(schedule)

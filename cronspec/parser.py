@@ -132,6 +132,16 @@ def _parse_fragment(fragment, field_name, name_map, position):
                 % (field_name, step_token),
             )
         step = int(step_token)
+        if step == 0:
+            # isdigit() 会放行 "0"（以及 "00" 等写法），必须单独拦截，
+            # 否则会漏到 range() 抛出内置 ValueError，破坏报错约定。
+            raise ScheduleSyntaxError(
+                field_name,
+                step_token,
+                position + len(base) + 1,
+                "%s 字段的步进值 %r 必须是正整数（不允许 0 或负数）"
+                % (field_name, step_token),
+            )
     else:
         step = None
 

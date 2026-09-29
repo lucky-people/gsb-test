@@ -3,7 +3,7 @@
 import random
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from cronspec import describe, parse
 from cronspec.errors import NoMatchingTimeError, ScheduleSyntaxError
@@ -425,6 +425,89 @@ class PerformanceTests(unittest.TestCase):
             elapsed = time.perf_counter() - begin
             self.assertEqual(len(results), 1000)
             self.assertLess(elapsed, 1.0, "%s 耗时 %.3fs" % (expr, elapsed))
+
+
+class RegressionTests(unittest.TestCase):
+    """cronspec-h01 批次三类缺陷的回归用例。
+
+    缺陷 1：步进为 0 未被拦截，漏出 range() 的内置 ValueError；
+    缺陷 2：带 tzinfo 的入参未被拒绝；
+    缺陷 3：next_n 传 0 不抛 ValueError，返回空列表。
+    """
+
+    def test_step_zero_rejected_in_every_field(self):
+        # 每个字段的 */0 与 范围/0 写法都必须抛 ScheduleSyntaxError，
+        # 且 field/value/position 精确定位到步进词元。
+        cases = [
+            ("*/0 * * * *", "minute", "0", 2),
+            ("* */0 * * *", "hour", "0", 4),
+            ("* * */0 * *", "day_of_month", "0", 6),
+            ("* * * */0 *", "month", "0", 8),
+            ("* * * * */0", "day_of_week", "0", 10),
+            ("1-10/0 * * * *", "minute", "0", 5),
+            ("0-59/00 * * * *", "minute", "00", 5),
+        ]
+        for expr, field, value, position in cases:
+            with self.assertRaises(ScheduleSyntaxError) as captured:
+                parse(expr)
+            error = captured.exception
+            self.assertEqual(error.field, field, expr)
+            self.assertEqual(error.value, value, expr)
+            self.assertEqual(error.position, position, expr)
+            located = expr[error.position : error.position + len(error.value)]
+            self.assertEqual(located, error.value, expr)
+
+    def test_step_zero_raises_syntax_error_not_builtin_value_error(self):
+        # 缺陷 1 的连带保证：抛出的必须是 ScheduleSyntaxError 本身，
+        # 而不是 range() 漏出的内置 ValueError。
+        with self.assertRaises(ScheduleSyntaxError) as captured:
+            parse("*/0 * * * *")
+        self.assertIs(type(captured.exception), ScheduleSyntaxError)
+        self.assertIn("步进", str(captured.exception))
+
+    def test_valid_steps_still_accepted(self):
+        # 步进拦截不能误伤合法写法。
+        self.assertEqual(parse("*/1 * * * *").minute.values, tuple(range(60)))
+        self.assertEqual(parse("*/15 * * * *").minute.values, (0, 15, 30, 45))
+        self.assertEqual(parse("0-30/5 * * * *").minute.values, (0, 5, 10, 15, 20, 25, 30))
+
+    def test_tzinfo_rejected_with_various_offsets(self):
+        # 缺陷 2：任何非 None 的 tzinfo 都必须抛 TypeError，不止 UTC。
+        schedule = parse("* * * * *")
+        aware_datetimes = [
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=8))),
+            datetime(2024, 1, 1, tzinfo=timezone(timedelta(hours=-5, minutes=-30))),
+            datetime(2024, 1, 1, tzinfo=timezone(timedelta(0), name="C")),
+        ]
+        for aware in aware_datetimes:
+            with self.assertRaises(TypeError):
+                schedule.matches(aware)
+            with self.assertRaises(TypeError):
+                schedule.next_after(aware)
+            with self.assertRaises(TypeError):
+                schedule.next_n(aware, 1)
+        # 朴素 datetime 不受影响。
+        naive = datetime(2024, 1, 1)
+        self.assertTrue(schedule.matches(naive))
+        self.assertEqual(schedule.next_after(naive), datetime(2024, 1, 1, 0, 1))
+        self.assertEqual(len(schedule.next_n(naive, 2)), 2)
+
+    def test_next_n_non_positive_and_non_int(self):
+        # 缺陷 3：n <= 0 抛 ValueError；bool 与非 int 类型抛 TypeError。
+        schedule = parse("* * * * *")
+        for bad in (0, -1, -100):
+            with self.assertRaises(ValueError):
+                schedule.next_n(dt(2024, 1, 1), bad)
+        for bad_type in (True, False, 1.5, "3", None):
+            with self.assertRaises(TypeError):
+                schedule.next_n(dt(2024, 1, 1), bad_type)
+        # 正常路径不受影响。
+        results = schedule.next_n(dt(2024, 1, 1), 3)
+        self.assertEqual(
+            results,
+            [dt(2024, 1, 1, 0, 1), dt(2024, 1, 1, 0, 2), dt(2024, 1, 1, 0, 3)],
+        )
 
 
 if __name__ == "__main__":

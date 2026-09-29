@@ -217,6 +217,12 @@ python -m unittest test_cronspec -v
 入参不可变、升序不重复、秒非 0、时区拒绝、`describe` 稳定性，以及稀疏
 表达式取 1000 个触发时刻的性能断言（1 秒内）。
 
+另有 `RegressionTests` 回归类，针对历史缺陷定点设防：步进为 0 在各字段
+均被拦截且抛 `ScheduleSyntaxError`（不漏出内置 `ValueError`）、带任意
+偏移 `tzinfo` 的入参被 `matches` / `next_after` / `next_n` 一致拒绝、
+`next_n` 对 `n <= 0` 抛 `ValueError` 且对 bool / 非 int 类型抛
+`TypeError`。
+
 ## 性能基准
 
 ```
