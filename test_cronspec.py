@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from cronspec import describe, parse
 from cronspec.errors import NoMatchingTimeError, ScheduleSyntaxError
+from cronspec.fields import CronField
 
 
 def dt(year, month, day, hour=0, minute=0, second=0, microsecond=0):
@@ -425,6 +426,60 @@ class PerformanceTests(unittest.TestCase):
             elapsed = time.perf_counter() - begin
             self.assertEqual(len(results), 1000)
             self.assertLess(elapsed, 1.0, "%s 耗时 %.3fs" % (expr, elapsed))
+
+
+class RegressionTests(unittest.TestCase):
+    """工单 cronspec-g03 的三类缺陷回归测试。
+
+    分别对应：搜索窗口过窄导致稀疏计划误报无解、字段查找把「大于等于」
+    写成「严格大于」、``next_after`` 在入参正好命中时失去「严格晚于」。
+    """
+
+    def test_search_window_covers_widest_leap_gap(self):
+        # 2096->2104 间隔 8 年（2100 不是闰年），4 年窗口会误报无解。
+        schedule = parse("0 0 29 2 *")
+        self.assertEqual(schedule.next_after(dt(2097, 1, 1)), dt(2104, 2, 29))
+        self.assertEqual(
+            schedule.next_after(dt(2104, 2, 29, 0, 0)), dt(2108, 2, 29)
+        )
+
+    def test_next_value_at_or_above_includes_exact_hit(self):
+        # 「大于等于 value 的最小值」：正好命中的取值不得被跳过。
+        field = CronField((3, 7, 9), is_star=False)
+        self.assertEqual(field.next_value_at_or_above(7), 7)
+        self.assertEqual(field.next_value_at_or_above(8), 9)
+        self.assertIsNone(field.next_value_at_or_above(10))
+
+    def test_exact_month_and_day_not_skipped(self):
+        # 月、日、时、分正好命中集合取值时，不得跳到下一个取值。
+        schedule = parse("30 9 10 3 *")
+        self.assertEqual(
+            schedule.next_after(dt(2024, 3, 1)), dt(2024, 3, 10, 9, 30)
+        )
+        self.assertEqual(
+            schedule.next_after(dt(2024, 3, 10, 9, 30)),
+            dt(2025, 3, 10, 9, 30),
+        )
+
+    def test_next_after_strictly_after_exact_hit(self):
+        schedule = parse("0 0 1 1 *")
+        hit = dt(2025, 1, 1, 0, 0)
+        snapshot = hit.replace()
+        self.assertEqual(schedule.next_after(hit), dt(2026, 1, 1, 0, 0))
+        # 同一分钟内带秒/微秒的入参同样不算「之后」。
+        self.assertEqual(
+            schedule.next_after(dt(2025, 1, 1, 0, 0, 0, 1)),
+            dt(2026, 1, 1, 0, 0),
+        )
+        self.assertEqual(hit, snapshot)
+
+    def test_next_n_unique_when_input_is_exact_hit(self):
+        schedule = parse("0 0 1 1 *")
+        results = schedule.next_n(dt(2021, 1, 1, 0, 0), 3)
+        self.assertEqual(
+            results, [dt(2022, 1, 1), dt(2023, 1, 1), dt(2024, 1, 1)]
+        )
+        self.assertEqual(len(set(results)), 3)
 
 
 if __name__ == "__main__":

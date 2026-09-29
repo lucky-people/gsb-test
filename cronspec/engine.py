@@ -13,7 +13,7 @@ from .errors import NoMatchingTimeError
 
 # 搜索窗口上限（年）。公历星期每 400 年重复，闰年周期最长 8 年，
 # 任何可行表达式都必然能在 400 年内命中，这里再留出余量。
-SEARCH_LIMIT_YEARS = 4
+SEARCH_LIMIT_YEARS = 400
 
 
 def is_leap(year):
@@ -141,8 +141,10 @@ def next_tuple(schedule, year, month, day, hour, minute):
 
             day_same = in_start_month and candidate_day == day
             if day_same:
-                time_result = _candidate_time(schedule, hour, minute, True)
                 # 整分时刻不晚于同分钟内的任何输入时刻，统一跳过同一分钟。
+                time_result = _candidate_time(
+                    schedule, hour, minute + 1, True
+                )
             else:
                 time_result = _candidate_time(schedule, 0, 0, False)
 
