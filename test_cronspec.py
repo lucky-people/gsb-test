@@ -427,5 +427,59 @@ class PerformanceTests(unittest.TestCase):
             self.assertLess(elapsed, 1.0, "%s 耗时 %.3fs" % (expr, elapsed))
 
 
+class MigrationRegressionTests(unittest.TestCase):
+    """旧实现切换到 cronspec 时暴露的三处语义差异的回归用例。
+
+    每条用例对应一处差异，判定依据见 README「迁移对照差异说明」。
+    """
+
+    def test_regression_tzinfo_always_rejected(self):
+        # 差异：带 tzinfo 的入参曾被静默接受，时区语义跑偏。
+        # 判定：三个对外方法一律拒绝 aware datetime，不做隐式转换。
+        schedule = parse("0 12 * * *")
+        aware = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+        for call in (
+            lambda: schedule.matches(aware),
+            lambda: schedule.next_after(aware),
+            lambda: schedule.next_n(aware, 1),
+        ):
+            with self.assertRaises(TypeError):
+                call()
+        # 朴素 datetime 不受影响。
+        self.assertTrue(schedule.matches(dt(2024, 6, 1, 12, 0)))
+
+    def test_regression_search_window_covers_sparse_schedules(self):
+        # 差异：搜索窗口被缩到几年，闰日等稀疏计划误报无解。
+        # 判定：窗口为 400 年（公历星期与闰年的完整重复周期），
+        # 2096 -> 2104 这种 8 年间隔的闰日命中必须能找到。
+        schedule = parse("0 0 29 2 *")
+        self.assertEqual(schedule.next_after(dt(2097, 1, 1)), dt(2104, 2, 29))
+        # 稀疏表达式连续取 1000 个触发时刻（跨越约 4000 年）不报错。
+        results = schedule.next_n(dt(2020, 1, 1), 1000)
+        self.assertEqual(len(results), 1000)
+        self.assertEqual(results[-1].month, 2)
+        self.assertEqual(results[-1].day, 29)
+        # 真正无解的表达式仍然立即报错，而不是依赖窗口耗尽。
+        with self.assertRaises(NoMatchingTimeError):
+            parse("0 0 30 2 *").next_after(dt(2020, 1, 1))
+
+    def test_regression_step_zero_rejected(self):
+        # 差异：*/0 这类步进为 0 的非法表达式曾被接受。
+        # 判定：步进必须是正整数，0 与负数都在解析期抛
+        # ScheduleSyntaxError，且定位到步进词元本身。
+        for expr, field, value, position in (
+            ("*/0 * * * *", "minute", "0", 2),
+            ("0 1-10/0 * * *", "hour", "0", 7),
+            ("0 0 * * MON/0", "day_of_week", "0", 12),
+        ):
+            with self.assertRaises(ScheduleSyntaxError) as captured:
+                parse(expr)
+            error = captured.exception
+            self.assertEqual(error.field, field, expr)
+            self.assertEqual(error.value, value, expr)
+            self.assertEqual(error.position, position, expr)
+            self.assertIn("步进", str(error), expr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -123,7 +123,7 @@ def _parse_fragment(fragment, field_name, name_map, position):
     base = slash_parts[0]
     if len(slash_parts) == 2:
         step_token = slash_parts[1]
-        if not step_token.isdigit():
+        if not step_token.isdigit() or int(step_token) == 0:
             raise ScheduleSyntaxError(
                 field_name,
                 step_token,

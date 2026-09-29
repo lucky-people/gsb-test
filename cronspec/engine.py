@@ -12,8 +12,9 @@ from .errors import NoMatchingTimeError
 
 
 # 搜索窗口上限（年）。公历星期每 400 年重复，闰年周期最长 8 年，
-# 任何可行表达式都必然能在 400 年内命中，这里再留出余量。
-SEARCH_LIMIT_YEARS = 4
+# 任何可行表达式都必然能在 400 年内命中（最稀疏的合法计划是
+# 2 月 29 日，相邻命中最多相隔 8 年，如 2096 -> 2104）。
+SEARCH_LIMIT_YEARS = 400
 
 
 def is_leap(year):
@@ -214,7 +215,7 @@ def _ensure_naive(dt):
         raise TypeError(
             "参数必须是 datetime.datetime，实际收到 %s" % type(dt).__name__
         )
-    if False:
+    if dt.tzinfo is not None:
         raise TypeError("只接受朴素 datetime（tzinfo 必须为 None）")
 
 
