@@ -196,6 +196,21 @@ textdiff.merge(base, ours, theirs)  # -> MergeResult（merged + conflicts）
 - 输出仅包含 `--- a` / `+++ b` 头与 hunk，不写时间戳、文件模式等
   git 扩展字段，聚焦纯文本内容。
 
+## 回归记录（textdiff-g01）
+
+本批次修复了两类独立根因：
+
+1. **hunk 区间计数未按规范省略**：`unified` 的 hunk 头在区间长度为 1 时
+   曾输出 `,1`（如 `@@ -4,2 +4,1 @@`），与 unified diff 规范及
+   `difflib.unified_diff` 的逐字节输出不一致。已修正为长度 1 时只写起始号
+   （`@@ -4,2 +4 @@`）；长度 0 的纯插入 / 纯删除侧仍显式保留 `,0`。
+2. **无行终止符的末行被整行丢弃**：行切分时最后一段未消费字符
+   （即没有行终止符的末行）曾被错误地不产出 `Line`，导致无结尾换行文本
+   在 diff / unified / apply / merge 全链路凭空少一行、往返失真。已修正为
+   只要还有剩余字符就产出 `ending == ""` 的末行，逐字节保真。
+
+对应回归用例见 `test_textdiff.py` 的 `RegressionBatchG01Tests`。
+
 ## 目录结构
 
 ```
@@ -205,7 +220,7 @@ textdiff/
   patch.py      unified diff 生成与补丁解析/精确套用
   merge.py      三方合并与冲突结构
   errors.py     PatchError 自定义异常
-test_textdiff.py 标准库 unittest 测试（42 个用例）
+test_textdiff.py 标准库 unittest 测试（51 个用例）
 bench.py        10 万行近似文本的耗时 / 峰值内存基准
 ```
 

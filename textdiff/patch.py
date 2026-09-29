@@ -17,7 +17,13 @@ _Op = tuple[str, Line, Optional[int], Optional[int]]
 
 
 def _range_field(start: int, length: int) -> str:
-    """unified 头里的区间字段：长度为 1 时省略计数。"""
+    """unified 头里的区间字段。
+
+    按 unified diff 规范，区间长度恰好为 1 时省略计数，只写起始行号；
+    长度为 0（纯插入 / 纯删除的另一侧）时仍显式写出 `,0`。
+    """
+    if length == 1:
+        return str(start)
     return f"{start},{length}"
 
 
@@ -172,7 +178,11 @@ def _parse_patch(patch: str) -> list[_ParsedHunk]:
         return []
     if len(physical) < 2 or not physical[0].text.startswith("--- ") \
             or not physical[1].text.startswith("+++ "):
-        raise PatchError("补丁缺少合法的 --- / +++ 文件头")
+        head = physical[0].render() if physical else ""
+        raise PatchError(
+            "补丁缺少合法的 --- / +++ 文件头："
+            f"期望以 --- / +++ 开头，实际首行为 {head!r}",
+            hunk_index=0, expected="--- / +++ 文件头", actual=head)
 
     hunks: list[_ParsedHunk] = []
     index = 2
@@ -183,7 +193,9 @@ def _parse_patch(patch: str) -> list[_ParsedHunk]:
             raise PatchError(
                 f"第 {len(hunks) + 1} 个 hunk 处遇到无法识别的行："
                 f"期望 hunk 头（@@ ... @@），实际为 "
-                f"{physical[index].text!r}")
+                f"{physical[index].text!r}",
+                hunk_index=len(hunks) + 1, expected="@@ ... @@ hunk 头",
+                actual=physical[index].render())
         index += 1
         old_start = int(match.group(1))
         old_count = int(match.group(2)) if match.group(2) is not None else 1
@@ -199,11 +211,14 @@ def _parse_patch(patch: str) -> list[_ParsedHunk]:
             if pline.text == NO_NEWLINE_MARKER:
                 if not ops:
                     raise PatchError(
-                        f"第 {hunk_no} 个 hunk 的「未结束」标注前缺少内容行")
+                        f"第 {hunk_no} 个 hunk 的「未结束」标注前缺少内容行",
+                        hunk_index=hunk_no)
                 last_op, last_line = ops[-1]
                 if last_line.ending == "":
                     raise PatchError(
-                        f"第 {hunk_no} 个 hunk 出现连续的「未结束」标注")
+                        f"第 {hunk_no} 个 hunk 出现连续的「未结束」标注",
+                        hunk_index=hunk_no,
+                        actual=NO_NEWLINE_MARKER)
                 ops[-1] = (last_op, Line(last_line.text, ""))
                 index += 1
                 continue
@@ -211,7 +226,10 @@ def _parse_patch(patch: str) -> list[_ParsedHunk]:
                 raise PatchError(
                     f"第 {hunk_no} 个 hunk 的正文行 {pline.text!r} 不合法："
                     "必须以空格、减号或加号开头，且带行终止符"
-                    "（无终止符的行须有「未结束」标注）")
+                    "（无终止符的行须有「未结束」标注）",
+                    hunk_index=hunk_no,
+                    expected="以空格/减号/加号开头且带行终止符的正文行",
+                    actual=pline.render())
             prefix = pline.text[0]
             content = Line(pline.text[1:], pline.ending)
             if prefix == " ":
@@ -229,11 +247,15 @@ def _parse_patch(patch: str) -> list[_ParsedHunk]:
         if expect_old != old_count:
             raise PatchError(
                 f"第 {hunk_no} 个 hunk 头声明旧侧 {old_count} 行，"
-                f"正文实际为 {expect_old} 行")
+                f"正文实际为 {expect_old} 行",
+                hunk_index=hunk_no, expected=f"{old_count} 行",
+                actual=f"{expect_old} 行")
         if expect_new != new_count:
             raise PatchError(
                 f"第 {hunk_no} 个 hunk 头声明新侧 {new_count} 行，"
-                f"正文实际为 {expect_new} 行")
+                f"正文实际为 {expect_new} 行",
+                hunk_index=hunk_no, expected=f"{new_count} 行",
+                actual=f"{expect_new} 行")
         hunks.append(_ParsedHunk(old_start, old_count,
                                  new_start, new_count, ops))
     return hunks
@@ -263,8 +285,12 @@ def apply(text: str, patch: str) -> str:
                 hunk_index=hunk_no, line_no=hunk.old_start)
         if pos < cursor:
             raise PatchError(
-                f"第 {hunk_no} 个 hunk 与前一个 hunk 位置重叠",
-                hunk_index=hunk_no)
+                f"第 {hunk_no} 个 hunk 与前一个 hunk 位置重叠："
+                f"起始位置 {hunk.old_start} 早于前一个 hunk 结束位置 "
+                f"{cursor + 1}",
+                hunk_index=hunk_no, line_no=hunk.old_start,
+                expected=f"行号 >= {cursor + 1}",
+                actual=f"行号 {hunk.old_start}")
 
         output.extend(target[cursor:pos])
         scan = pos

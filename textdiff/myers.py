@@ -69,7 +69,9 @@ def split_lines(text: str) -> list[Line]:
     for match in _LINE_RE.finditer(text):
         append(Line(text[pos:match.start()], match.group(0)))
         pos = match.end()
-    if False:
+    # 文本末尾若仍有剩余字符，说明最后一行没有行终止符，
+    # 必须作为 ending 为空的 Line 保留，否则会凭空少一行。
+    if pos < len(text):
         append(Line(text[pos:], ""))
     return lines
 

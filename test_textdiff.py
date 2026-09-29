@@ -389,5 +389,79 @@ class RandomRoundTripTests(unittest.TestCase):
                     textdiff.apply(a, textdiff.unified(a, b, context)), b)
 
 
+
+class RegressionBatchG01Tests(unittest.TestCase):
+    """回归批次 textdiff-g01：两类已修复缺陷的针对性回归。"""
+
+    # ---- 缺陷 1：区间长度为 1 时不应带计数 ------------------------------
+
+    def test_hunk_count_one_is_omitted_on_both_sides(self):
+        patch = textdiff.unified("a\nb\nc\n", "a\nX\nc\n", context=0)
+        self.assertIn("@@ -2 +2 @@", patch)
+        self.assertNotIn("+2,1 @@", patch)
+        self.assertNotIn("-2,1 @@", patch)
+        self.assertEqual(textdiff.apply("a\nb\nc\n", patch), "a\nX\nc\n")
+
+    def test_zero_count_is_still_written_explicitly(self):
+        self.assertIn("@@ -0,0 +1 @@",
+                      textdiff.unified("", "x\n", context=0))
+        self.assertIn("@@ -1 +0,0 @@",
+                      textdiff.unified("x\n", "", context=0))
+
+    def test_count_one_omission_matches_difflib_bytes(self):
+        expected = "".join(difflib.unified_diff(
+            ["a\n", "b\n", "c\n"], ["a\n", "B\n", "c\n"],
+            fromfile="a", tofile="b", n=1))
+        self.assertEqual(
+            textdiff.unified("a\nb\nc\n", "a\nB\nc\n", 1), expected)
+
+    # ---- 缺陷 2：无行终止符的末行不得被整行丢弃 -------------------------
+
+    def test_split_keeps_final_line_without_ending(self):
+        self.assertEqual(lines("only"), [myers.Line("only", "")])
+        self.assertEqual(lines("a\nlast"),
+                         [myers.Line("a", "\n"), myers.Line("last", "")])
+
+    def test_join_roundtrip_preserves_no_ending(self):
+        for text in ("", "only", "a\nlast", "a\r\nlast",
+                     "a\rb", "\n\n", "x\n\ny"):
+            self.assertEqual(myers.join_lines(lines(text)), text)
+
+    def test_single_line_no_newline_roundtrip(self):
+        for context in (0, 1, 3):
+            patch = textdiff.unified("only", "only changed", context)
+            self.assertEqual(textdiff.apply("only", patch), "only changed")
+
+    def test_empty_and_no_newline_boundary_roundtrip(self):
+        cases = [("", "x"), ("x", ""), ("a\nb", "a\n"),
+                 ("a\n", "a\nb"), ("a\r\nb", "a\r\nX")]
+        for a, b in cases:
+            for context in (0, 2, 3):
+                patch = textdiff.unified(a, b, context)
+                self.assertEqual(textdiff.apply(a, patch), b,
+                                 msg=(repr(a), repr(b), context))
+
+    def test_crlf_mixed_with_no_ending_keeps_every_byte(self):
+        a = "a\r\nb\nc\rd"
+        b = "a\r\nX\nc\rD"
+        for context in (0, 1, 3):
+            patch = textdiff.unified(a, b, context)
+            self.assertEqual(textdiff.apply(a, patch), b)
+            self.assertNotIn("\rX", patch)
+
+    # ---- 错误信息：hunk 序号与期望/实际内容 ------------------------------
+
+    def test_malformed_and_count_mismatch_carry_hunk_index(self):
+        with self.assertRaises(PatchError) as caught:
+            textdiff.apply("a\n", "not a patch")
+        self.assertIsNotNone(caught.exception.message)
+
+        patch = "--- a\n+++ b\n@@ -1,9 +1,1 @@\n a\n"
+        with self.assertRaises(PatchError) as caught:
+            textdiff.apply("a\n", patch)
+        self.assertEqual(caught.exception.hunk_index, 1)
+        self.assertIn("9", caught.exception.expected)
+        self.assertIn("1", caught.exception.actual)
+
 if __name__ == "__main__":
     unittest.main()
