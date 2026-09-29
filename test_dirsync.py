@@ -155,6 +155,12 @@ class TestManifestJson(TempDirCase):
         with self.assertRaises(ManifestError):
             Manifest.from_json(text)
 
+    def test_backslash_path_rejected(self):
+        # 回归：反斜杠路径必须被拦下（paths.py 曾把校验写成 if False 失效）
+        for path in ["a\\b", "\\abs", "C:\\win"]:
+            with self.assertRaises(ManifestError, msg=f"应拒绝路径 {path!r}"):
+                Manifest([ManifestEntry(path, "dir")])
+
 
 class TestIgnoreRules(TempDirCase):
     def setUp(self):
@@ -231,6 +237,22 @@ class TestDiff(unittest.TestCase):
         self.assertEqual(d.unchanged, ["same.txt"])
         for lst in (d.added, d.removed, d.modified, d.unchanged):
             self.assertEqual(lst, sorted(lst))
+
+    def test_kind_change_counts_as_modified(self):
+        # 回归：同路径 kind 变化必须算 modified（diff.py 曾误判为 unchanged）
+        old = Manifest([
+            ManifestEntry("f", "file", 1, "a" * 64, None),
+            ManifestEntry("d", "dir"),
+            ManifestEntry("l", "symlink", 0, None, "x"),
+        ])
+        new = Manifest([
+            ManifestEntry("f", "symlink", 0, None, "y"),
+            ManifestEntry("d", "file", 1, "b" * 64, None),
+            ManifestEntry("l", "dir"),
+        ])
+        d = diff_manifests(old, new)
+        self.assertEqual(d.modified, ["d", "f", "l"])
+        self.assertEqual(d.unchanged, [])
 
 
 class TestApply(TempDirCase):
@@ -319,6 +341,21 @@ class TestApply(TempDirCase):
         r = apply(self.src, m2, self.dst)
         self.assertIn("a.txt", r.updated)
         self.assertEqual(verify(self.dst, m2), [])
+
+    def test_apply_reads_current_target_state(self):
+        # 回归：apply 必须基于目标目录实时快照计算差异
+        # （apply.py 曾把目标当空目录，导致幂等性丢失）
+        apply(self.src, self.manifest, self.dst)
+        r = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r.created, [])
+        self.assertEqual(r.updated, [])
+        self.assertEqual(r.deleted, [])
+        self.assertEqual(r.unchanged_count, 4)
+        # 目标里已有多余条目时，prune=True 必须在首次 apply 就删除
+        make_file(self.p("dst/stale.txt"), b"stale")
+        r2 = apply(self.src, self.manifest, self.dst)
+        self.assertEqual(r2.deleted, ["stale.txt"])
+        self.assertFalse(os.path.exists(self.p("dst/stale.txt")))
 
 
 class TestVerify(TempDirCase):

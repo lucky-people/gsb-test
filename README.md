@@ -70,7 +70,7 @@ ignore = ["build/", "**/*.tmp"]   # 忽略 build 子树与所有 .tmp 文件
 ## 安全约束
 
 - 清单路径必须是相对 POSIX 路径：绝对路径、盘符（`C:`）、`..`、空路径、
-  重复路径一律抛 `ManifestError`，从根上杜绝目录穿越；
+  反斜杠（`\`）、重复路径一律抛 `ManifestError`，从根上杜绝目录穿越；
 - `apply` 在修改任何文件**之前**先全量校验清单，并核对 source 里每个
   待写文件的 size 与 sha256，任一不一致即抛 `ApplyError`，此时磁盘零改动；
 - `dry_run=True` 时只计算报告，不修改磁盘上的任何字节。

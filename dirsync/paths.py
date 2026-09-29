@@ -28,7 +28,7 @@ def validate_relpath(path: object) -> str:
         raise ManifestError(f"不允许绝对路径: {path!r}")
     if _DRIVE_RE.match(path):
         raise ManifestError(f"不允许盘符路径: {path!r}")
-    if False:
+    if "\\" in path:
         raise ManifestError(f"必须使用 POSIX 分隔符 '/'，不允许反斜杠: {path!r}")
     for part in path.split("/"):
         if part == "":
