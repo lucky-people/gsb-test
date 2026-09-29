@@ -319,5 +319,62 @@ class TestEdgeCases(unittest.TestCase):
                 self.assertEqual(lzpack.decompress(blob), data)
 
 
+class TestRegressions(unittest.TestCase):
+    """lzpack-g05 批次三类缺陷的回归用例。"""
+
+    def test_regression_match_length_encoding(self):
+        # 缺陷 1：匹配标签里存的长度必须是 长度 - MIN_MATCH。
+        # 长度 3 的匹配：标签 0x80；长度 129 的匹配：标签 0xFE；
+        # 长度 130 及以上的长匹配：标签 0xFF + 变长整数(长度 - 130)。
+        blob = lzpack.compress(b"aaaa", level=1, window=1024)
+        self.assertEqual(blob[12:], b"\x00a\x80\x00")  # 字面量 + 匹配(1, 3)
+
+        blob = lzpack.compress(b"b" * 130, level=1, window=1024)
+        # 字面量 'b' + 匹配(偏移1, 长度129)：标签 0xFE
+        self.assertEqual(blob[-4:], b"\x00b\xfe\x00")
+
+        blob = lzpack.compress(b"c" * 131, level=1, window=1024)
+        # 字面量 'c' + 长匹配(偏移1, 长度130)：0xFF + varint(0)
+        self.assertEqual(blob[-5:], b"\x00c\xff\x00\x00")
+
+        # 各种长度的重复数据都要能逐字节往返
+        for n in (3, 129, 130, 131, 1000, MAX_MATCH, MAX_MATCH + 7):
+            data = b"z" * (n + 1)
+            self.assertEqual(lzpack.decompress(lzpack.compress(data)), data)
+
+    def test_regression_varint_nine_bytes(self):
+        # 缺陷 2：变长整数上限是 9 字节（63 位），长整数必须能往返。
+        for v in (1 << 35, 1 << 40, 1 << 49, 1 << 56, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertLessEqual(len(enc), 9)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        # 9 字节全续位（无终止）算超长；10 字节必然报错
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 9, 0)
+        with self.assertRaises(FormatError):
+            read_varint(b"\xff" * 10, 0)
+        # 9 字节合法上限值可以往返
+        enc = encode_varint((1 << 63) - 1)
+        self.assertEqual(len(enc), 9)
+        self.assertEqual(read_varint(enc, 0), ((1 << 63) - 1, 9))
+
+    def test_regression_chunked_crc_accumulates(self):
+        # 缺陷 3：分块喂入时 CRC 必须跨块累加，任何一块损坏都要被发现。
+        data = (LOG_LINE * 200) + bytes(range(256)) * 40
+        blob = lzpack.compress(data)
+        # 分块喂入与一次性结果一致
+        for size in (1, 7, 100, 4096):
+            self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, size), data)
+        # 损坏落在前面的分块里，分块喂入也必须在 finish 时抛 FormatError
+        for size in (16, 4096):
+            mutated = bytearray(blob)
+            mutated[20] ^= 0xFF  # 数据块前部的一个字节
+            d = lzpack.Decompressor()
+            with self.assertRaises(FormatError):
+                for i in range(0, len(mutated), size):
+                    d.feed(bytes(mutated[i:i + size]))
+                d.finish()
+
+
 if __name__ == "__main__":
     unittest.main()
