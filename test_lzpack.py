@@ -8,7 +8,7 @@ import lzpack
 from lzpack import codec
 from lzpack.errors import ConfigError, FormatError
 from lzpack.lz77 import MAX_MATCH, MIN_MATCH, find_tokens
-from lzpack.varint import encode_varint, read_varint
+from lzpack.varint import MAX_VARINT_BYTES, encode_varint, read_varint
 
 LOG_LINE = b"2026-09-24 12:00:00 INFO  [worker-3] request handled in 12ms\n"
 
@@ -161,6 +161,16 @@ class TestFormatBytes(unittest.TestCase):
         with self.assertRaises(FormatError):
             read_varint(b"\xff" * 9, 0)             # 超过 9 字节
 
+    def test_varint_nine_byte_limit_regression(self):
+        # 回归（lzpack-f01）：变长整数上限是 9 字节（63 位），
+        # 需要 6..9 个字节的长整数必须能往返
+        self.assertEqual(MAX_VARINT_BYTES, 9)
+        for v in (1 << 35, 1 << 40, (1 << 48) - 1, (1 << 63) - 1):
+            enc = encode_varint(v)
+            self.assertGreater(len(enc), 5)
+            self.assertEqual(read_varint(enc, 0), (v, len(enc)))
+        self.assertEqual(len(encode_varint((1 << 63) - 1)), 9)
+
 
 class TestEdgeCases(unittest.TestCase):
     """边界与取舍。"""
@@ -174,6 +184,33 @@ class TestEdgeCases(unittest.TestCase):
         blob = lzpack.compress(data)
         self.assertLess(len(blob), 200)
         self.assertEqual(lzpack.decompress(blob), data)
+
+    def test_overlap_match_period_repeat_regression(self):
+        # 回归（lzpack-f01）：偏移 < 匹配长度的重叠匹配，
+        # 解码时要把已解码的「偏移」个字节作为周期重复，而不是切片截断
+        cases = [
+            # 字面量 + 匹配(偏移, 长度) => 期望输出
+            (b"xyz", 3, 9, b"xyz" * 4),
+            (b"q", 1, 100, b"q" * 101),
+            (b"ab", 2, 1000, b"ab" * 501),
+            (b"abcdefg", 5, 16384, b"abcdefg" + (b"cdefg" * 4000)[:16384]),
+        ]
+        for lit, off, length, expect in cases:
+            body = bytearray()
+            body.append(len(lit) - 1)
+            body += lit
+            code = length - MIN_MATCH
+            if code < 0x7F:
+                body.append(0x80 | code)
+            else:
+                body.append(0xFF)
+                body += encode_varint(code - 0x7F)
+            body += encode_varint(off - 1)
+            head = codec.build_header(len(expect), codec.crc32(expect), 6, 32768)
+            blob = head + bytes(body)
+            self.assertEqual(lzpack.decompress(blob), expect)
+            # 流式逐字节喂入结果必须一致
+            self.assertEqual(shuffled_feed(lzpack.Decompressor(), blob, 1), expect)
 
     def test_max_match_length(self):
         # 超过 MAX_MATCH 的重复应拆成多个匹配，且每个匹配长度 <= MAX_MATCH

@@ -256,7 +256,14 @@ class Decompressor:
                     raise FormatError(
                         self._base + pos,
                         "匹配偏移 %d 超出已解码数据量 %d" % (off, len(out)))
-                seg = bytes(out[len(out) - off:len(out) - off + length])
+                start = len(out) - off
+                if length <= off:
+                    seg = bytes(out[start:start + length])
+                else:
+                    # 偏移小于长度时是重叠匹配：已解码的 off 个字节
+                    # 作为周期不断重复，直到凑满 length 个字节
+                    rep = bytes(out[start:])
+                    seg = (rep * (length // off + 1))[:length]
                 pos = r[1]
             out += seg
             produced += seg
